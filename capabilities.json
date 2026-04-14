@@ -1,0 +1,150 @@
+{
+    "dataRoles": [
+        {
+            "displayName": "Row Category",
+            "name": "rowCategory",
+            "kind": "Grouping",
+            "description": "Row axis category (e.g. Beat, Region, Product)"
+        },
+        {
+            "displayName": "Column Category",
+            "name": "columnCategory",
+            "kind": "Grouping",
+            "description": "Column axis category (e.g. Day of Week, Month, Shift)"
+        },
+        {
+            "displayName": "Cell Value",
+            "name": "cellValue",
+            "kind": "Measure",
+            "description": "Numeric value displayed in each cell"
+        },
+        {
+            "displayName": "Sort Order",
+            "name": "sortOrder",
+            "kind": "Measure",
+            "description": "Optional numeric value to control row sort order (ascending)"
+        }
+    ],
+    "dataViewMappings": [
+        {
+            "conditions": [
+                {
+                    "rowCategory": { "max": 1 },
+                    "columnCategory": { "max": 1 },
+                    "cellValue": { "max": 1 },
+                    "sortOrder": { "max": 1 }
+                }
+            ],
+            "categorical": {
+                "categories": {
+                    "select": [
+                        { "for": { "in": "rowCategory" } },
+                        { "for": { "in": "columnCategory" } }
+                    ],
+                    "dataReductionAlgorithm": { "top": { "count": 10000 } }
+                },
+                "values": {
+                    "select": [
+                        { "bind": { "to": "cellValue" } },
+                        { "bind": { "to": "sortOrder" } }
+                    ]
+                }
+            }
+        }
+    ],
+    "objects": {
+        "heatmapSettings": {
+            "properties": {
+                "colorScheme": {
+                    "type": {
+                        "enumeration": [
+                            { "displayName": "Green to Red", "value": "greenToRed" },
+                            { "displayName": "Red to Green", "value": "redToGreen" },
+                            { "displayName": "Sequential", "value": "sequential" },
+                            { "displayName": "Custom", "value": "custom" }
+                        ]
+                    }
+                },
+                "lowColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "midColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "highColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "zeroColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "cellBorderRadius": {
+                    "type": { "numeric": true }
+                },
+                "showValues": {
+                    "type": { "bool": true }
+                },
+                "valueFormat": {
+                    "type": {
+                        "enumeration": [
+                            { "displayName": "Number", "value": "number" },
+                            { "displayName": "Percent", "value": "percent" }
+                        ]
+                    }
+                },
+                "decimalPlaces": {
+                    "type": { "numeric": true }
+                }
+            }
+        },
+        "columnSettings": {
+            "properties": {
+                "columnOrder": {
+                    "type": {
+                        "enumeration": [
+                            { "displayName": "Auto", "value": "auto" },
+                            { "displayName": "Weekday", "value": "weekday" }
+                        ]
+                    }
+                }
+            }
+        },
+        "labelSettings": {
+            "properties": {
+                "fontSize": {
+                    "type": { "numeric": true }
+                },
+                "headerFontSize": {
+                    "type": { "numeric": true }
+                },
+                "fontColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                }
+            }
+        },
+        "axisSettings": {
+            "properties": {
+                "showAxisTitles": {
+                    "type": { "bool": true }
+                },
+                "xAxisTitle": {
+                    "type": { "text": true }
+                },
+                "yAxisTitle": {
+                    "type": { "text": true }
+                }
+            }
+        }
+    },
+    "privileges": [],
+    "supportsHighlight": true,
+    "supportsKeyboardFocus": true,
+    "supportsLandingPage": true,
+    "supportsEmptyDataView": true,
+    "supportsMultiVisualSelection": true,
+    "tooltips": {
+        "supportedTypes": {
+            "default": true,
+            "canvas": true
+        }
+    }
+}

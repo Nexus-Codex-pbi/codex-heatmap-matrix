@@ -1,0 +1,67 @@
+.heatmap-container {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    box-sizing: border-box;
+    padding: 4px;
+}
+
+.heatmap-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 2px;
+    table-layout: fixed;
+}
+
+.heatmap-corner {
+    background: transparent;
+    border: none;
+    min-width: 80px;
+    width: 80px;
+}
+
+.heatmap-col-header {
+    text-align: center;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 4px 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.3px;
+}
+
+.heatmap-row-label {
+    text-align: right;
+    font-weight: 600;
+    padding: 4px 8px 4px 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+.heatmap-cell {
+    text-align: center;
+    padding: 6px 4px;
+    font-weight: 500;
+    transition: opacity 0.15s ease;
+    min-width: 32px;
+    white-space: nowrap;
+
+    &:hover {
+        opacity: 0.8;
+    }
+}
+
+.heatmap-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #999;
+    font-size: 13px;
+    text-align: center;
+    padding: 20px;
+}
