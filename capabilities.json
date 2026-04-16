@@ -41,7 +41,7 @@
                         { "for": { "in": "rowCategory" } },
                         { "for": { "in": "columnCategory" } }
                     ],
-                    "dataReductionAlgorithm": { "top": { "count": 10000 } }
+                    "dataReductionAlgorithm": { "top": { "count": 30000 } }
                 },
                 "values": {
                     "select": [

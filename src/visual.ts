@@ -139,6 +139,8 @@ export class Visual implements IVisual {
 
             // Build pivot: row -> column -> value
             const dataMap = new Map<string, Map<string, number>>();
+            const stringDataMap = new Map<string, Map<string, string>>();
+            let isStringMode = false;
             const uniqueRows: string[] = [];
             const uniqueCols: string[] = [];
             const rowSet = new Set<string>();
@@ -151,7 +153,16 @@ export class Visual implements IVisual {
             for (let i = 0; i < rowCat.values.length; i++) {
                 const rowKey = String(rowCat.values[i] ?? "");
                 const colKey = String(colCat.values[i] ?? "");
-                const val = values.values[i] as number;
+                const rawVal = values.values[i];
+
+                // Detect string-valued cells and handle them separately
+                const isStringVal = typeof rawVal === "string" && isNaN(Number(rawVal));
+                if (isStringVal) {
+                    isStringMode = true;
+                }
+
+                const numVal = typeof rawVal === "number" ? rawVal : Number(rawVal);
+                const strVal = String(rawVal ?? "");
 
                 if (!rowSet.has(rowKey)) {
                     rowSet.add(rowKey);
@@ -165,7 +176,17 @@ export class Visual implements IVisual {
                 if (!dataMap.has(rowKey)) {
                     dataMap.set(rowKey, new Map<string, number>());
                 }
-                dataMap.get(rowKey).set(colKey, val);
+                if (!stringDataMap.has(rowKey)) {
+                    stringDataMap.set(rowKey, new Map<string, string>());
+                }
+
+                if (isStringVal) {
+                    stringDataMap.get(rowKey).set(colKey, strVal);
+                    dataMap.get(rowKey).set(colKey, NaN);
+                } else {
+                    dataMap.get(rowKey).set(colKey, numVal);
+                    stringDataMap.get(rowKey).set(colKey, strVal);
+                }
 
                 // Track sort order per row (use first encountered value for each row)
                 if (sortOrderValues && !rowSortOrder.has(rowKey)) {
@@ -175,9 +196,9 @@ export class Visual implements IVisual {
                     }
                 }
 
-                if (val != null && !isNaN(val) && val !== 0) {
-                    if (val < dataMin) dataMin = val;
-                    if (val > dataMax) dataMax = val;
+                if (isFinite(numVal) && numVal !== 0) {
+                    if (numVal < dataMin) dataMin = numVal;
+                    if (numVal > dataMax) dataMax = numVal;
                 }
             }
 
@@ -297,6 +318,7 @@ export class Visual implements IVisual {
                 tr.appendChild(rowLabel);
 
                 const rowMap = dataMap.get(row);
+                const strRowMap = stringDataMap.get(row);
 
                 for (const col of sortedCols) {
                     const td = document.createElement("td");
@@ -305,14 +327,23 @@ export class Visual implements IVisual {
                     td.style.cursor = "pointer";
 
                     const val = rowMap ? rowMap.get(col) : undefined;
+                    const strVal = strRowMap ? strRowMap.get(col) : "";
                     let displayText = "";
 
-                    if (val == null || isNaN(val) || val === 0) {
+                    // String-valued cell: show text with default background
+                    if (strVal && isNaN(Number(strVal))) {
+                        td.style.backgroundColor = this.isHighContrast ? this.highContrastBackground : "#f5f4f0";
+                        td.style.color = this.isHighContrast ? this.highContrastForeground : "#1a1a1a";
+                        if (showValues) {
+                            displayText = strVal;
+                            td.textContent = displayText;
+                        }
+                    } else if (val == null || isNaN(val) || val === 0) {
                         // Zero or null cell
                         td.style.backgroundColor = zeroColor;
                         td.style.color = this.isHighContrast ? this.highContrastForeground : contrastText(zeroColor);
                         if (showValues) {
-                            displayText = val === 0 ? "0" : "";
+                            displayText = val === 0 ? "0" : (strVal || "");
                             td.textContent = displayText;
                         }
                     } else {
@@ -344,7 +375,7 @@ export class Visual implements IVisual {
                     const cellRow = row;
                     const cellCol = col;
                     const cellVal = val;
-                    const cellDisplayText = displayText || (cellVal != null ? String(cellVal) : "");
+                    const cellDisplayText = displayText || strVal || (cellVal != null ? String(cellVal) : "");
 
                     // Build selection ID for cross-filtering
                     const dataIdx = cellIndexMap.get(row + "\0" + col);
