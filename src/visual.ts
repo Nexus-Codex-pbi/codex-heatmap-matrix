@@ -68,45 +68,26 @@ export class Visual implements IVisual {
         this.target.style.padding = "0";
         this.target.style.overflow = "hidden";
         this.target.style.display = "block";
+        this.target.style.width = "100%";
+        this.target.style.height = "100%";
 
         this.container = document.createElement("div");
         this.container.className = "heatmap-container";
-        this.container.style.position = "relative";
+        this.container.style.display = "flex";
+        this.container.style.flexDirection = "column";
         this.container.style.width = "100%";
         this.container.style.height = "100%";
+        this.container.style.boxSizing = "border-box";
         this.target.appendChild(this.container);
 
         // Content wrapper — table and axis titles go here.
         this.contentWrapper = document.createElement("div");
-        this.contentWrapper.style.position = "relative";
-        this.contentWrapper.style.zIndex = "2";
+        this.contentWrapper.style.flex = "1";
+        this.contentWrapper.style.minHeight = "0";
+        this.contentWrapper.style.overflow = "auto";
         this.container.appendChild(this.contentWrapper);
 
-        // SVG overlay filling the entire container catches contextmenu in
-        // empty space (title gap, subtitle, below-table) — Policy 1180.2.5.
-        // SVG rect reliably receives pointer events in PBI sandbox unlike
-        // plain divs. Transparent fill makes it invisible but clickable.
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        svg.style.position = "absolute";
-        svg.style.top = "0";
-        svg.style.left = "0";
-        svg.style.width = "100%";
-        svg.style.height = "100%";
-        svg.style.zIndex = "1";
-        svg.style.pointerEvents = "none";
-
-        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        rect.setAttribute("x", "0");
-        rect.setAttribute("y", "0");
-        rect.setAttribute("width", "100%");
-        rect.setAttribute("height", "100%");
-        rect.setAttribute("fill", "transparent");
-        rect.style.pointerEvents = "all";
-        svg.appendChild(rect);
-
-        this.container.appendChild(svg);
-
-        // Context menu handler — SVG rect catches clicks in empty space
+        // Context menu handlers
         this.contextMenuHandler = (e: MouseEvent) => {
             this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
@@ -114,8 +95,7 @@ export class Visual implements IVisual {
         };
         this.target.addEventListener("contextmenu", this.contextMenuHandler);
         this.container.addEventListener("contextmenu", this.contextMenuHandler);
-        rect.addEventListener("contextmenu", this.contextMenuHandler);
-        document.addEventListener("contextmenu", this.contextMenuHandler, true);
+        this.contentWrapper.addEventListener("contextmenu", this.contextMenuHandler);
     }
 
     public update(options: VisualUpdateOptions): void {
