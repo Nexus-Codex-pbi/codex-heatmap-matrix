@@ -41,6 +41,7 @@ export class Visual implements IVisual {
     private tooltipService: ITooltipService;
     private container: HTMLElement;
     private overlay: HTMLElement;
+    private contentWrapper: HTMLElement;
     private isHighContrast: boolean = false;
     private highContrastForeground: string = "";
     private highContrastBackground: string = "";
@@ -72,6 +73,8 @@ export class Visual implements IVisual {
         this.container = document.createElement("div");
         this.container.className = "heatmap-container";
         this.container.style.position = "relative";
+        this.container.style.width = "100%";
+        this.container.style.height = "100%";
         this.target.appendChild(this.container);
 
         // Full-size invisible overlay catches contextmenu everywhere,
@@ -87,9 +90,15 @@ export class Visual implements IVisual {
         this.overlay.style.zIndex = "1";
         this.container.appendChild(this.overlay);
 
+        // Content wrapper — table and axis titles go here. Rendered after
+        // overlay so they sit on top in DOM z-order.
+        this.contentWrapper = document.createElement("div");
+        this.contentWrapper.style.position = "relative";
+        this.contentWrapper.style.zIndex = "2";
+        this.container.appendChild(this.contentWrapper);
+
         // Context menu handler — overlay catches clicks in empty space
-        // above/below table; table cells set pointerEvents back to "auto"
-        // so they still work.
+        // above/below/around content; table cells catch their own clicks.
         this.contextMenuHandler = (e: MouseEvent) => {
             this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
@@ -117,8 +126,9 @@ export class Visual implements IVisual {
                 VisualFormattingSettingsModel, dataView
             );
 
-            while (this.container.firstChild) {
-                this.container.removeChild(this.container.firstChild);
+            // Clear previous render content (preserves overlay)
+            while (this.contentWrapper.firstChild) {
+                this.contentWrapper.removeChild(this.contentWrapper.firstChild);
             }
 
             if (!dataView || !dataView.categorical || !dataView.categorical.categories
@@ -484,7 +494,7 @@ export class Visual implements IVisual {
                 tableWrapper.appendChild(table);
                 wrapper.appendChild(tableWrapper);
 
-                this.container.appendChild(wrapper);
+                this.contentWrapper.appendChild(wrapper);
 
                 if (xAxisTitle) {
                     const xTitleEl = document.createElement("div");
@@ -495,10 +505,10 @@ export class Visual implements IVisual {
                     xTitleEl.style.fontFamily = "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
                     xTitleEl.style.paddingTop = "6px";
                     xTitleEl.textContent = xAxisTitle;
-                    this.container.appendChild(xTitleEl);
+                    this.contentWrapper.appendChild(xTitleEl);
                 }
             } else {
-                this.container.appendChild(table);
+                this.contentWrapper.appendChild(table);
             }
 
             this.eventService.renderingFinished(options);
@@ -514,7 +524,7 @@ export class Visual implements IVisual {
         if (this.isHighContrast) {
             msg.style.color = this.highContrastForeground;
         }
-        this.container.appendChild(msg);
+        this.contentWrapper.appendChild(msg);
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
