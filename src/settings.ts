@@ -182,11 +182,49 @@ class AxisSettingsCard extends FormattingSettingsCard {
     ];
 }
 
+class TitleSettingsCard extends FormattingSettingsCard {
+    showTitle = new formattingSettings.ToggleSwitch({
+        name: "showTitle",
+        displayName: "Show Title",
+        value: false
+    });
+
+    titleText = new formattingSettings.TextInput({
+        name: "titleText",
+        displayName: "Title Text",
+        placeholder: "Visual title",
+        value: ""
+    });
+
+    titleFontSize = new formattingSettings.NumUpDown({
+        name: "titleFontSize",
+        displayName: "Font Size",
+        value: 14
+    });
+
+    titleColor = new formattingSettings.ColorPicker({
+        name: "titleColor",
+        displayName: "Font Color",
+        value: { value: "#1a1a2e" },
+        instanceKind: ConstantOrRule
+    });
+
+    name: string = "titleSettings";
+    displayName: string = "Visual Title";
+    slices: Array<FormattingSettingsSlice> = [
+        this.showTitle,
+        this.titleText,
+        this.titleFontSize,
+        this.titleColor
+    ];
+}
+
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     heatmapSettings = new HeatmapSettingsCard();
     columnSettings = new ColumnSettingsCard();
     labelSettings = new LabelSettingsCard();
     axisSettings = new AxisSettingsCard();
+    titleSettings = new TitleSettingsCard();
 
-    cards = [this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings];
+    cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings];
 }

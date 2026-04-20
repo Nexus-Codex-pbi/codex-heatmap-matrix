@@ -133,6 +133,27 @@
                     "type": { "text": true }
                 }
             }
+        },
+        "titleSettings": {
+            "displayName": "Visual Title",
+            "properties": {
+                "showTitle": {
+                    "displayName": "Show Title",
+                    "type": { "bool": true }
+                },
+                "titleText": {
+                    "displayName": "Title Text",
+                    "type": { "text": true }
+                },
+                "titleFontSize": {
+                    "displayName": "Font Size",
+                    "type": { "numeric": true }
+                },
+                "titleColor": {
+                    "displayName": "Font Color",
+                    "type": { "fill": { "solid": { "color": true } } }
+                }
+            }
         }
     },
     "privileges": [],
