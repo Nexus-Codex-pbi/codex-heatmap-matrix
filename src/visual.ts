@@ -40,6 +40,7 @@ export class Visual implements IVisual {
     private formattingSettingsService: FormattingSettingsService;
     private tooltipService: ITooltipService;
     private container: HTMLElement;
+    private overlay: HTMLElement;
     private isHighContrast: boolean = false;
     private highContrastForeground: string = "";
     private highContrastBackground: string = "";
@@ -66,22 +67,35 @@ export class Visual implements IVisual {
         this.target.style.margin = "0";
         this.target.style.padding = "0";
         this.target.style.overflow = "hidden";
+        this.target.style.display = "block";
 
         this.container = document.createElement("div");
         this.container.className = "heatmap-container";
-        this.container.style.display = "block";
+        this.container.style.position = "relative";
         this.target.appendChild(this.container);
 
-        // Context menu. Listener on target AND on the heatmap container —
-        // the container's padding region doesn't bubble contextmenu events
-        // reliably in PBI's sandbox, so a direct listener is required to
-        // cover right-clicks in empty padding (Policy 1180.2.5).
+        // Full-size invisible overlay catches contextmenu everywhere,
+        // including the gap above the table header when content doesn't
+        // fill the container height (Policy 1180.2.5).
+        this.overlay = document.createElement("div");
+        this.overlay.style.position = "absolute";
+        this.overlay.style.top = "0";
+        this.overlay.style.left = "0";
+        this.overlay.style.width = "100%";
+        this.overlay.style.height = "100%";
+        this.overlay.style.pointerEvents = "auto";
+        this.overlay.style.zIndex = "1";
+        this.container.appendChild(this.overlay);
+
+        // Context menu handler — overlay catches clicks in empty space
+        // above/below table; table cells set pointerEvents back to "auto"
+        // so they still work.
         this.contextMenuHandler = (e: MouseEvent) => {
             this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
         };
         this.target.addEventListener("contextmenu", this.contextMenuHandler);
-        this.container.addEventListener("contextmenu", this.contextMenuHandler);
+        this.overlay.addEventListener("contextmenu", this.contextMenuHandler);
     }
 
     public update(options: VisualUpdateOptions): void {
