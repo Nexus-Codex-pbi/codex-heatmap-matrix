@@ -40,7 +40,6 @@ export class Visual implements IVisual {
     private formattingSettingsService: FormattingSettingsService;
     private tooltipService: ITooltipService;
     private container: HTMLElement;
-    private overlay: HTMLElement;
     private contentWrapper: HTMLElement;
     private isHighContrast: boolean = false;
     private highContrastForeground: string = "";
@@ -77,34 +76,46 @@ export class Visual implements IVisual {
         this.container.style.height = "100%";
         this.target.appendChild(this.container);
 
-        // Full-size invisible overlay catches contextmenu everywhere,
-        // including the gap above the table header when content doesn't
-        // fill the container height (Policy 1180.2.5).
-        this.overlay = document.createElement("div");
-        this.overlay.style.position = "absolute";
-        this.overlay.style.top = "0";
-        this.overlay.style.left = "0";
-        this.overlay.style.width = "100%";
-        this.overlay.style.height = "100%";
-        this.overlay.style.pointerEvents = "auto";
-        this.overlay.style.zIndex = "1";
-        this.container.appendChild(this.overlay);
-
-        // Content wrapper — table and axis titles go here. Rendered after
-        // overlay so they sit on top in DOM z-order.
+        // Content wrapper — table and axis titles go here.
         this.contentWrapper = document.createElement("div");
         this.contentWrapper.style.position = "relative";
         this.contentWrapper.style.zIndex = "2";
         this.container.appendChild(this.contentWrapper);
 
-        // Context menu handler — overlay catches clicks in empty space
-        // above/below/around content; table cells catch their own clicks.
+        // SVG overlay filling the entire container catches contextmenu in
+        // empty space (title gap, subtitle, below-table) — Policy 1180.2.5.
+        // SVG rect reliably receives pointer events in PBI sandbox unlike
+        // plain divs. Transparent fill makes it invisible but clickable.
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.style.position = "absolute";
+        svg.style.top = "0";
+        svg.style.left = "0";
+        svg.style.width = "100%";
+        svg.style.height = "100%";
+        svg.style.zIndex = "1";
+        svg.style.pointerEvents = "none";
+
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", "0");
+        rect.setAttribute("y", "0");
+        rect.setAttribute("width", "100%");
+        rect.setAttribute("height", "100%");
+        rect.setAttribute("fill", "transparent");
+        rect.style.pointerEvents = "all";
+        svg.appendChild(rect);
+
+        this.container.appendChild(svg);
+
+        // Context menu handler — SVG rect catches clicks in empty space
         this.contextMenuHandler = (e: MouseEvent) => {
             this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
+            return false;
         };
         this.target.addEventListener("contextmenu", this.contextMenuHandler);
-        this.overlay.addEventListener("contextmenu", this.contextMenuHandler);
+        this.container.addEventListener("contextmenu", this.contextMenuHandler);
+        rect.addEventListener("contextmenu", this.contextMenuHandler);
+        document.addEventListener("contextmenu", this.contextMenuHandler, true);
     }
 
     public update(options: VisualUpdateOptions): void {
@@ -535,6 +546,10 @@ export class Visual implements IVisual {
         if (this.target) {
             this.target.removeEventListener("contextmenu", this.contextMenuHandler);
         }
+        if (this.container) {
+            this.container.removeEventListener("contextmenu", this.contextMenuHandler);
+        }
+        document.removeEventListener("contextmenu", this.contextMenuHandler, true);
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }
