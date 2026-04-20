@@ -2,6 +2,7 @@
 
 import powerbi from "powerbi-visuals-api";
 import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
+import { select as d3Select } from "d3-selection";
 import "./../style/visual.less";
 
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
@@ -41,10 +42,10 @@ export class Visual implements IVisual {
     private tooltipService: ITooltipService;
     private container: HTMLElement;
     private contentWrapper: HTMLElement;
+    private svg: any;
     private isHighContrast: boolean = false;
     private highContrastForeground: string = "";
     private highContrastBackground: string = "";
-    private contextMenuHandler: (e: MouseEvent) => void;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -63,54 +64,57 @@ export class Visual implements IVisual {
             this.highContrastBackground = colorPalette.background.value;
         }
 
-        // Fill the entire visual bounding box — no gaps for dead-zone clicks
-        this.target.style.margin = "0";
-        this.target.style.padding = "0";
-        this.target.style.overflow = "hidden";
-        this.target.style.display = "block";
-        this.target.style.width = "100%";
-        this.target.style.height = "100%";
+        // SVG layer fills entire visual — catches contextmenu in empty space
+        // (same pattern as PowerBI-visuals-sampleBarChart)
+        this.svg = d3Select(options.element)
+            .append("svg")
+            .classed("heatmap-bg-svg", true)
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0")
+            .style("width", "100%")
+            .style("height", "100%")
+            .style("z-index", "0")
+            .style("pointer-events", "none");
 
+        // Transparent rect catches contextmenu in empty space
+        this.svg.append("rect")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .attr("fill", "transparent")
+            .style("pointer-events", "all")
+            .on("contextmenu", (event: MouseEvent) => {
+                this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: event.clientX, y: event.clientY });
+                event.preventDefault();
+            });
+
+        // Content container sits on top of SVG
         this.container = document.createElement("div");
         this.container.className = "heatmap-container";
         this.container.style.display = "flex";
         this.container.style.flexDirection = "column";
         this.container.style.width = "100%";
         this.container.style.height = "100%";
-        this.container.style.boxSizing = "border-box";
+        this.container.style.position = "relative";
+        this.container.style.zIndex = "1";
         this.target.appendChild(this.container);
 
-        // Content wrapper — table and axis titles go here.
         this.contentWrapper = document.createElement("div");
         this.contentWrapper.style.flex = "1";
         this.contentWrapper.style.minHeight = "0";
         this.contentWrapper.style.overflow = "auto";
         this.container.appendChild(this.contentWrapper);
-
-        // Context menu handlers - multiple levels for maximum coverage
-        this.contextMenuHandler = (e: MouseEvent) => {
-            this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
-            e.preventDefault();
-            return false;
-        };
-        this.target.addEventListener("contextmenu", this.contextMenuHandler);
-        this.container.addEventListener("contextmenu", this.contextMenuHandler);
-        this.contentWrapper.addEventListener("contextmenu", this.contextMenuHandler);
-        // Also attach to document and window level
-        document.addEventListener("contextmenu", this.contextMenuHandler, true);
-        window.addEventListener("contextmenu", this.contextMenuHandler, true);
-        document.body.style.cursor = "default";
-        document.body.style.margin = "0";
-        document.body.style.padding = "0";
-        document.body.style.width = "100%";
-        document.body.style.height = "100%";
-        document.body.style.overflow = "hidden";
     }
 
     public update(options: VisualUpdateOptions): void {
         this.eventService.renderingStarted(options);
 
         try {
+            // Update SVG size to match viewport
+            this.svg
+                .attr("width", options.viewport.width)
+                .attr("height", options.viewport.height);
+
             // Refresh high contrast state each update
             const colorPalette = this.host.colorPalette as any;
             if (colorPalette.isHighContrast) {
@@ -126,7 +130,7 @@ export class Visual implements IVisual {
                 VisualFormattingSettingsModel, dataView
             );
 
-            // Clear previous render content (preserves overlay)
+            // Clear previous render content
             while (this.contentWrapper.firstChild) {
                 this.contentWrapper.removeChild(this.contentWrapper.firstChild);
             }
@@ -532,17 +536,8 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
-        if (this.target) {
-            this.target.removeEventListener("contextmenu", this.contextMenuHandler);
-        }
-        if (this.container) {
-            this.container.removeEventListener("contextmenu", this.contextMenuHandler);
-        }
-        if (this.contentWrapper) {
-            this.contentWrapper.removeEventListener("contextmenu", this.contextMenuHandler);
-        }
-        document.removeEventListener("contextmenu", this.contextMenuHandler, true);
-        window.removeEventListener("contextmenu", this.contextMenuHandler, true);
+        this.svg?.remove();
+        this.svg = null;
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }
