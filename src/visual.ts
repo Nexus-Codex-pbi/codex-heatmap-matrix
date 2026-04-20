@@ -62,16 +62,26 @@ export class Visual implements IVisual {
             this.highContrastBackground = colorPalette.background.value;
         }
 
+        // Fill the entire visual bounding box — no gaps for dead-zone clicks
+        this.target.style.margin = "0";
+        this.target.style.padding = "0";
+        this.target.style.overflow = "hidden";
+
         this.container = document.createElement("div");
         this.container.className = "heatmap-container";
+        this.container.style.display = "block";
         this.target.appendChild(this.container);
 
-        // Context menu
+        // Context menu. Listener on target AND on the heatmap container —
+        // the container's padding region doesn't bubble contextmenu events
+        // reliably in PBI's sandbox, so a direct listener is required to
+        // cover right-clicks in empty padding (Policy 1180.2.5).
         this.contextMenuHandler = (e: MouseEvent) => {
             this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
         };
         this.target.addEventListener("contextmenu", this.contextMenuHandler);
+        this.container.addEventListener("contextmenu", this.contextMenuHandler);
     }
 
     public update(options: VisualUpdateOptions): void {
