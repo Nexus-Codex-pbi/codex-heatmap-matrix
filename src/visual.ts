@@ -87,7 +87,7 @@ export class Visual implements IVisual {
         this.contentWrapper.style.overflow = "auto";
         this.container.appendChild(this.contentWrapper);
 
-        // Context menu handlers
+        // Context menu handlers - multiple levels for maximum coverage
         this.contextMenuHandler = (e: MouseEvent) => {
             this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
@@ -96,6 +96,15 @@ export class Visual implements IVisual {
         this.target.addEventListener("contextmenu", this.contextMenuHandler);
         this.container.addEventListener("contextmenu", this.contextMenuHandler);
         this.contentWrapper.addEventListener("contextmenu", this.contextMenuHandler);
+        // Also attach to document and window level
+        document.addEventListener("contextmenu", this.contextMenuHandler, true);
+        window.addEventListener("contextmenu", this.contextMenuHandler, true);
+        document.body.style.cursor = "default";
+        document.body.style.margin = "0";
+        document.body.style.padding = "0";
+        document.body.style.width = "100%";
+        document.body.style.height = "100%";
+        document.body.style.overflow = "hidden";
     }
 
     public update(options: VisualUpdateOptions): void {
@@ -529,7 +538,11 @@ export class Visual implements IVisual {
         if (this.container) {
             this.container.removeEventListener("contextmenu", this.contextMenuHandler);
         }
+        if (this.contentWrapper) {
+            this.contentWrapper.removeEventListener("contextmenu", this.contextMenuHandler);
+        }
         document.removeEventListener("contextmenu", this.contextMenuHandler, true);
+        window.removeEventListener("contextmenu", this.contextMenuHandler, true);
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }
