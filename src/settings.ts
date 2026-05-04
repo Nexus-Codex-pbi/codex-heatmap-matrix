@@ -196,10 +196,51 @@ class TitleSettingsCard extends FormattingSettingsCard {
         value: ""
     });
 
+    titleFontFamily = new formattingSettings.FontPicker({
+        name: "titleFontFamily",
+        displayName: "Font Family",
+        value: "Segoe UI, sans-serif"
+    });
+
     titleFontSize = new formattingSettings.NumUpDown({
         name: "titleFontSize",
         displayName: "Font Size",
         value: 14
+    });
+
+    titleBold = new formattingSettings.ToggleSwitch({
+        name: "titleBold",
+        displayName: "Bold",
+        value: true
+    });
+
+    titleItalic = new formattingSettings.ToggleSwitch({
+        name: "titleItalic",
+        displayName: "Italic",
+        value: false
+    });
+
+    titleUnderline = new formattingSettings.ToggleSwitch({
+        name: "titleUnderline",
+        displayName: "Underline",
+        value: false
+    });
+
+    titleFont = new formattingSettings.FontControl({
+        name: "titleFont",
+        displayName: "Font",
+        fontFamily: this.titleFontFamily,
+        fontSize: this.titleFontSize,
+        bold: this.titleBold,
+        italic: this.titleItalic,
+        underline: this.titleUnderline
+    });
+
+    titleAlign = new formattingSettings.AlignmentGroup({
+        name: "titleAlign",
+        displayName: "Alignment",
+        mode: powerbi.visuals.AlignmentGroupMode.Horizonal,
+        value: "left"
     });
 
     titleColor = new formattingSettings.ColorPicker({
@@ -214,7 +255,8 @@ class TitleSettingsCard extends FormattingSettingsCard {
     slices: Array<FormattingSettingsSlice> = [
         this.showTitle,
         this.titleText,
-        this.titleFontSize,
+        this.titleFont,
+        this.titleAlign,
         this.titleColor
     ];
 }
