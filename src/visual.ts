@@ -16,7 +16,11 @@ import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 import ILocalizationManager = powerbi.extensibility.ILocalizationManager;
 import DataView = powerbi.DataView;
 
+import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
+import { ColorHelper } from "powerbi-visuals-utils-colorutils";
+
 import { VisualFormattingSettingsModel } from "./settings";
+import { toRgba } from "../../_shared/formatting/colorHelpers";
 
 export class Visual implements IVisual {
     private target: HTMLElement;
@@ -28,6 +32,11 @@ export class Visual implements IVisual {
     private formattingSettingsService: FormattingSettingsService;
     private container: HTMLElement;
     private tooltipService: ITooltipService;
+
+    // State for the Zero/Null Colour fx wiring (TRANS-04) — per-cell
+    // object overrides live on the raw DataViewCategoryColumn.objects,
+    // indexed the same way as the row/col arrays built in update().
+    private zeroColorHelper: ColorHelper | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -62,6 +71,23 @@ export class Visual implements IVisual {
             this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(
                 VisualFormattingSettingsModel, dataView
             );
+
+            // ─── Dedicated background layer (D-05) ─────────────────────
+            // Suite-wide shared Background card (Colour + Transparency,
+            // sourced from _shared/formatting/), painted on `this.container`
+            // — the outer scrollable render root appended directly to
+            // options.element — never on the existing per-cell colours
+            // (heatmapSettings.lowColor/midColor/highColor/zeroColor,
+            // rendered on each <td>). Applied unconditionally (before the
+            // empty-state early return) so an empty-state render also
+            // honours it. Its transparency default is overridden to 100 in
+            // settings.ts specifically so an OLD saved report (this
+            // property never previously existed) renders alpha 0 —
+            // pixel-identical to "nothing painted" (D-06).
+            const background = this.formattingSettings.background;
+            const bgHex = background.backgroundColor.value?.value ?? "#ffffff";
+            const bgTransparencyPct = background.transparency.value ?? 100;
+            this.container.style.backgroundColor = toRgba(bgHex, bgTransparencyPct);
 
             // Clear
             while (this.container.firstChild) {
@@ -207,7 +233,17 @@ export class Visual implements IVisual {
                 });
             };
 
+            // Cell region transparency (D-05 per-region slider, sibling to
+            // the existing colour pickers above) — applied to whichever
+            // hex colour colorFor()/zeroC resolves to at render, via the
+            // frozen toRgba() wrapper. Cells are ALWAYS painted a colour
+            // today (never "unpainted"), so 0 (opaque) is the correct
+            // no-override default (D-06).
+            const cellTransparencyPct = heat?.cellTransparency?.value ?? 0;
+
             const colorFor = (t: number): string => {
+                // Returns a HEX string (not rgb()) so the result can be fed
+                // through toRgba() at the call site below.
                 const lerp = (a: string, b: string, k: number): string => {
                     const pa = parseInt(a.slice(1, 3), 16), pb = parseInt(b.slice(1, 3), 16);
                     const ga = parseInt(a.slice(3, 5), 16), gb = parseInt(b.slice(3, 5), 16);
@@ -215,7 +251,8 @@ export class Visual implements IVisual {
                     const r = Math.round(pa + k * (pb - pa));
                     const g = Math.round(ga + k * (gb - ga));
                     const bl = Math.round(ba + k * (bb - ba));
-                    return `rgb(${r},${g},${bl})`;
+                    const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
+                    return `#${toHex(r)}${toHex(g)}${toHex(bl)}`;
                 };
                 if (schemeVal === "greenToRed") {
                     return t < 0.5 ? lerp("#e0f5ef", "#fef3d6", t * 2) : lerp("#fef3d6", "#fde8ea", (t - 0.5) * 2);
@@ -256,6 +293,42 @@ export class Visual implements IVisual {
                 layoutWrap.appendChild(yAx);
             }
 
+            // ─── Conditional formatting (fx) wiring — Zero/Null Colour (TRANS-04) ──
+            // heat.zeroColor already carried a bare `instanceKind:
+            // ConstantOrRule` declaration, but with no
+            // `selector`/`altConstantSelector` wired it was inert (Pitfall
+            // 5). Wired here: a dataViewWildcard selector (so a rule can
+            // match this property's instances/totals) + an
+            // altConstantSelector bound to the first cell's selectionId
+            // (the "set for all" swatch edit path), resolved per-cell at
+            // render via ColorHelper.getColorForMeasure against
+            // rowCat.objects[cellIdx] — same per-instance pattern already
+            // proven on pbiProgressBarCard's Fixed Colour / pbiTimeBreakdown's
+            // Total Colour, applied here to a categorical grid's per-cell
+            // "value colour" (the zero/null-cell fill) rather than a
+            // continuous gradient (the low/mid/high scheme anchors are
+            // interpolation endpoints, not per-datapoint fills, so they are
+            // out of scope for fx per D-09 — structural chrome).
+            const firstCellIdx = rowCat.values.length > 0 ? 0 : undefined;
+            let firstCellSelId: ISelectionId | null = null;
+            if (firstCellIdx !== undefined) {
+                try {
+                    firstCellSelId = this.host.createSelectionIdBuilder()
+                        .withCategory(rowCat, firstCellIdx)
+                        .withCategory(colCat, firstCellIdx)
+                        .createSelectionId();
+                } catch { firstCellSelId = null; }
+            }
+            heat.zeroColor.selector = dataViewWildcard.createDataViewWildcardSelector(
+                dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
+            );
+            heat.zeroColor.altConstantSelector = firstCellSelId ? firstCellSelId.getSelector() : undefined;
+            this.zeroColorHelper = new ColorHelper(
+                this.host.colorPalette,
+                { objectName: "heatmapSettings", propertyName: "zeroColor" },
+                zeroC
+            );
+
             const table = document.createElement("table");
             table.className = "heatmap-table";
 
@@ -293,18 +366,11 @@ export class Visual implements IVisual {
                     td.style.fontSize = `${cellFontSize}px`;
                     const val = rowMap ? rowMap.get(col) : undefined;
                     let displayStr = "";
-                    if (val != null && isFinite(val) && val !== 0) {
-                        const t = (val - dataMin) / (dataMax - dataMin);
-                        td.style.backgroundColor = colorFor(t);
-                        displayStr = formatVal(val);
-                        if (showVals) td.textContent = displayStr;
-                    } else {
-                        td.style.backgroundColor = zeroC;
-                        if (val === 0) displayStr = formatVal(0);
-                        if (showVals && val === 0) td.textContent = displayStr;
-                    }
 
                     // Build selectionId for this cell (1180.2.2.3 Filter Out)
+                    // — moved ahead of the colour branch below so the same
+                    // cellIdx can resolve the Zero/Null Colour fx rule
+                    // against this cell's own per-instance object overrides.
                     const cellIdx = cellIndexMap.get(`${row}|${col}`);
                     let cellSelId: ISelectionId | null = null;
                     if (cellIdx !== undefined) {
@@ -314,6 +380,19 @@ export class Visual implements IVisual {
                                 .withCategory(colCat, cellIdx)
                                 .createSelectionId();
                         } catch { cellSelId = null; }
+                    }
+
+                    if (val != null && isFinite(val) && val !== 0) {
+                        const t = (val - dataMin) / (dataMax - dataMin);
+                        td.style.backgroundColor = toRgba(colorFor(t), cellTransparencyPct);
+                        displayStr = formatVal(val);
+                        if (showVals) td.textContent = displayStr;
+                    } else {
+                        const instanceObjects = cellIdx !== undefined ? rowCat.objects?.[cellIdx] : undefined;
+                        const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(instanceObjects, "zeroColor") ?? zeroC;
+                        td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
+                        if (val === 0) displayStr = formatVal(0);
+                        if (showVals && val === 0) td.textContent = displayStr;
                     }
 
                     if (cellSelId) {

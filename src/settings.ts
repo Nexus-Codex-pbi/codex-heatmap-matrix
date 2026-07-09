@@ -8,6 +8,8 @@ import FormattingSettingsCard = formattingSettings.SimpleCard;
 import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
+import { BackgroundSettings } from "../../_shared/formatting/backgroundSettings";
+
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
 class HeatmapSettingsCard extends FormattingSettingsCard {
@@ -62,6 +64,22 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
         value: 4
     });
 
+    // Per-region transparency (D-05) sibling to the existing cell colour
+    // pickers above (lowColor/midColor/highColor/zeroColor) — cells are
+    // ALWAYS painted a colour today (either the gradient or zeroColor), so
+    // the pre-existing default is fully opaque; 0 (opaque) preserves old
+    // saved reports pixel-identical (D-06), no override needed.
+    cellTransparency = new formattingSettings.Slider({
+        name: "cellTransparency",
+        displayName: "Cell Transparency",
+        description: "Transparency applied to cell fill colours",
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+
     showValues = new formattingSettings.ToggleSwitch({
         name: "showValues",
         displayName: "Show Values",
@@ -94,6 +112,7 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
         this.highColor,
         this.zeroColor,
         this.cellBorderRadius,
+        this.cellTransparency,
         this.showValues,
         this.valueFormat,
         this.decimalPlaces
@@ -267,6 +286,25 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     labelSettings = new LabelSettingsCard();
     axisSettings = new AxisSettingsCard();
     titleSettings = new TitleSettingsCard();
+    background = new BackgroundSettings();
 
-    cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings];
+    constructor() {
+        super();
+        // D-06 default-preservation override (per-visual instance only —
+        // _shared/formatting/backgroundSettings.ts itself is untouched,
+        // D-11): pbiHeatmapMatrix's PRE-EXISTING default was "no background
+        // ever painted" — confirmed via direct inspection of src/visual.ts:
+        // `this.container` (the outer scrollable render root appended to
+        // options.element) never has a background-color set anywhere;
+        // only cell-level colours (heatmapSettings.*Color) are painted, on
+        // a distinct DOM layer (each <td>), never the container. The
+        // frozen shared Background card's own default (opaque white,
+        // transparency 0) would regress every old saved report to a
+        // suddenly-opaque white container. Overriding the TRANSPARENCY
+        // default to 100 makes toRgba(...) resolve to alpha 0 regardless
+        // of colour — pixel-identical to "nothing painted".
+        this.background.transparency.value = 100;
+    }
+
+    cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings, this.background];
 }
