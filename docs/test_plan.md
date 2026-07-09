@@ -58,3 +58,26 @@
 - [ ] Right-click on empty space within the container (e.g. below the table) shows the context menu
 - [ ] Right-click outside the table but inside the visual's target bounding box shows the context menu
 - [ ] Dual-listener block (`this.target` + `this.container`, lines ~53-63) is unchanged from before this plan (git diff confirms no edits to the constructor's contextmenu wiring)
+- [ ] Right-click on the custom Title element shows the context menu (title is a child of `this.container`, so the container listener receives the bubbled contextmenu — no new dead zone)
+
+## 11. Visual Title (TITLE-01, shared _shared/formatting/ v2)
+- [ ] Visual Title card appears in the format pane (Show Title, Title Text, Font, Alignment, Font Color)
+- [ ] Show Title default OFF — an old saved report renders pixel-identical (no title strip appears)
+- [ ] Show Title ON + empty Title Text renders nothing (render gate is showTitle && titleText)
+- [ ] Title font family/size/bold/italic/underline apply; alignment left/center/right applies
+- [ ] Title migrated from the inline card to the shared TitleSettings — same property names, saved title settings from prior versions still load
+
+## 12. Per-Surface Text Treatment (TEXT-01)
+- [ ] Cell Value Font (family/size/bold/italic/underline) applies to numeric values inside cells
+- [ ] Cell Bold OFF renders the pre-existing weight 500 (pixel-identical to old reports); Bold ON renders 700
+- [ ] Cell Value Colour applies to cell text only — the cell fill gradient / zero colour is unchanged
+- [ ] Header Font (family/size/bold/italic/underline) applies to both column headers and row labels
+- [ ] Header Bold OFF renders each surface's own pre-existing weight (column header 700, row label 600); default Bold ON renders 700 (documented negligible +100 on row labels only when toggled)
+- [ ] Header Font Colour still applies to both header surfaces (unchanged behaviour)
+- [ ] Axis titles (Show Axis Titles) still render with header font size/colour (out of this plan's per-surface scope — unchanged)
+
+## 13. Cell Value Colour fx (TEXT-02)
+- [ ] Cell Value Colour swatch shows the fx button in the format pane
+- [ ] Setting a rule on Cell Value Colour resolves per-cell (each cell's text colour follows the rule against its own data)
+- [ ] Cell fill (gradient + zero/null) is unaffected by a Cell Value Colour rule
+- [ ] Default (no rule, untouched picker) renders black text — pixel-identical to the pre-plan inherited default

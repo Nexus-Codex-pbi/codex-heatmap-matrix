@@ -19,7 +19,7 @@ import DataView = powerbi.DataView;
 import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
-import { VisualFormattingSettingsModel } from "./settings";
+import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "../../_shared/formatting/colorHelpers";
 
 export class Visual implements IVisual {
@@ -37,6 +37,11 @@ export class Visual implements IVisual {
     // object overrides live on the raw DataViewCategoryColumn.objects,
     // indexed the same way as the row/col arrays built in update().
     private zeroColorHelper: ColorHelper | null = null;
+
+    // State for the Cell Value Colour fx wiring (TEXT-02) — same per-cell
+    // object-override resolution pattern as zeroColorHelper above, applied
+    // to the cell LABEL text colour (distinct from the cell fill).
+    private cellLabelColorHelper: ColorHelper | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -120,7 +125,7 @@ export class Visual implements IVisual {
                 titleEl.style.fontWeight = titleSettings.titleBold?.value ? "700" : "400";
                 titleEl.style.fontStyle = titleSettings.titleItalic?.value ? "italic" : "normal";
                 titleEl.style.textDecoration = titleSettings.titleUnderline?.value ? "underline" : "none";
-                titleEl.style.textAlign = (titleSettings.titleAlign?.value as string) || "left";
+                titleEl.style.textAlign = textAlignFor(titleSettings.titleAlign?.value as string);
                 if (titleSettings.titleColor?.value?.value) {
                     titleEl.style.color = titleSettings.titleColor.value.value;
                 }
@@ -222,6 +227,26 @@ export class Visual implements IVisual {
             const cellFontSize = lbl?.fontSize?.value ?? 12;
             const headerFontSize = lbl?.headerFontSize?.value ?? 11;
             const headerColor = lbl?.fontColor?.value?.value || "#333333";
+
+            // Per-surface text treatment (TEXT-01) — cell value label font
+            // + header font, siblings to the fontSize/headerFontSize reads
+            // above. weightFor(bold, restWeight) idiom (matches
+            // pbiVarianceWaterfall/pbiBulletChart precedent): bold on
+            // renders "700" regardless of surface; bold off falls back to
+            // each surface's own pre-existing hardcoded weight so old saved
+            // reports render pixel-identical (D-06).
+            const weightFor = (bold: boolean | undefined, restWeight: string): string => bold ? "700" : restWeight;
+            const cellFontFamily = lbl?.fontFamily?.value || "Segoe UI, sans-serif";
+            const cellWeight = weightFor(lbl?.bold?.value, "500");
+            const cellFontStyle = lbl?.italic?.value ? "italic" : "normal";
+            const cellTextDecoration = lbl?.underline?.value ? "underline" : "none";
+            const cellLabelColorDefault = lbl?.cellLabelColor?.value?.value || "#000000";
+
+            const headerFontFamily = lbl?.headerFontFamily?.value || "Segoe UI, sans-serif";
+            const colHeaderWeight = weightFor(lbl?.headerBold?.value, "700");
+            const rowLabelWeight = weightFor(lbl?.headerBold?.value, "600");
+            const headerFontStyle = lbl?.headerItalic?.value ? "italic" : "normal";
+            const headerTextDecoration = lbl?.headerUnderline?.value ? "underline" : "none";
 
             const formatVal = (n: number): string => {
                 if (valueFormat === "percent") {
@@ -329,6 +354,23 @@ export class Visual implements IVisual {
                 zeroC
             );
 
+            // ─── fx wiring — Cell Value Colour (TEXT-02) ────────────────
+            // Same per-cell resolution pattern as Zero/Null Colour above,
+            // applied to the cell LABEL text colour (the numeric value
+            // drawn ON the cell) — distinct from the cell FILL gradient,
+            // which stays exactly as Plan 07 left it. Resolved per-cell at
+            // render via ColorHelper.getColorForMeasure against
+            // rowCat.objects[cellIdx].
+            lbl.cellLabelColor.selector = dataViewWildcard.createDataViewWildcardSelector(
+                dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
+            );
+            lbl.cellLabelColor.altConstantSelector = firstCellSelId ? firstCellSelId.getSelector() : undefined;
+            this.cellLabelColorHelper = new ColorHelper(
+                this.host.colorPalette,
+                { objectName: "labelSettings", propertyName: "cellLabelColor" },
+                cellLabelColorDefault
+            );
+
             const table = document.createElement("table");
             table.className = "heatmap-table";
 
@@ -343,6 +385,10 @@ export class Visual implements IVisual {
                 th.textContent = col;
                 th.style.fontSize = `${headerFontSize}px`;
                 th.style.color = headerColor;
+                th.style.fontFamily = headerFontFamily;
+                th.style.fontWeight = colHeaderWeight;
+                th.style.fontStyle = headerFontStyle;
+                th.style.textDecoration = headerTextDecoration;
                 headerRow.appendChild(th);
             }
             thead.appendChild(headerRow);
@@ -356,6 +402,10 @@ export class Visual implements IVisual {
                 rowLabel.textContent = row;
                 rowLabel.style.fontSize = `${headerFontSize}px`;
                 rowLabel.style.color = headerColor;
+                rowLabel.style.fontFamily = headerFontFamily;
+                rowLabel.style.fontWeight = rowLabelWeight;
+                rowLabel.style.fontStyle = headerFontStyle;
+                rowLabel.style.textDecoration = headerTextDecoration;
                 tr.appendChild(rowLabel);
 
                 const rowMap = dataMap.get(row);
@@ -364,6 +414,10 @@ export class Visual implements IVisual {
                     td.className = "heatmap-cell";
                     td.style.borderRadius = `${cellRadius}px`;
                     td.style.fontSize = `${cellFontSize}px`;
+                    td.style.fontFamily = cellFontFamily;
+                    td.style.fontWeight = cellWeight;
+                    td.style.fontStyle = cellFontStyle;
+                    td.style.textDecoration = cellTextDecoration;
                     const val = rowMap ? rowMap.get(col) : undefined;
                     let displayStr = "";
 
@@ -382,14 +436,21 @@ export class Visual implements IVisual {
                         } catch { cellSelId = null; }
                     }
 
+                    // Cell Value Colour (TEXT-02) — per-cell fx resolution
+                    // against this cell's own per-instance object overrides
+                    // (mirrors the Zero/Null Colour resolution below).
+                    // Applies to the LABEL text only; the cell FILL
+                    // (gradient / zeroColor) is untouched.
+                    const cellInstanceObjects = cellIdx !== undefined ? rowCat.objects?.[cellIdx] : undefined;
+                    td.style.color = this.cellLabelColorHelper?.getColorForMeasure(cellInstanceObjects, "cellLabelColor") ?? cellLabelColorDefault;
+
                     if (val != null && isFinite(val) && val !== 0) {
                         const t = (val - dataMin) / (dataMax - dataMin);
                         td.style.backgroundColor = toRgba(colorFor(t), cellTransparencyPct);
                         displayStr = formatVal(val);
                         if (showVals) td.textContent = displayStr;
                     } else {
-                        const instanceObjects = cellIdx !== undefined ? rowCat.objects?.[cellIdx] : undefined;
-                        const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(instanceObjects, "zeroColor") ?? zeroC;
+                        const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(cellInstanceObjects, "zeroColor") ?? zeroC;
                         td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
                         if (val === 0) displayStr = formatVal(0);
                         if (showVals && val === 0) td.textContent = displayStr;

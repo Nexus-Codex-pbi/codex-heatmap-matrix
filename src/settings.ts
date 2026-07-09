@@ -9,6 +9,16 @@ import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
 import { BackgroundSettings } from "../../_shared/formatting/backgroundSettings";
+import { TitleSettings } from "../../_shared/formatting/titleSettings";
+import { textAlignFor } from "../../_shared/formatting/textFormatting";
+
+// TitleSettings now lives in _shared/formatting/ (D-13, D-14 — Plan 10
+// pilot); this visual's inline TitleSettingsCard (identical field-for-field
+// shape, already matching capabilities.json's titleSettings object exactly)
+// is deleted below and replaced by this import — no capabilities.json
+// change needed (schema was already byte-identical). Re-exported so
+// visual.ts can import from "./settings" (mirrors pbiKpiCard's shape).
+export { TitleSettings, textAlignFor };
 
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
@@ -139,6 +149,18 @@ class ColumnSettingsCard extends FormattingSettingsCard {
 }
 
 class LabelSettingsCard extends FormattingSettingsCard {
+    // ─── Cell value label text (TEXT-01/02) ──────────────────────────
+    // FontControl composite reuses the existing bare "fontSize" property
+    // name (D-06/D-07: additive-only, no schema rename) alongside NEW
+    // sibling properties (family/bold/italic/underline). Bold defaults
+    // false — the pre-existing hardcoded .heatmap-cell font-weight is 500
+    // (below the semibold/600 threshold the suite's weightFor idiom treats
+    // as bold-worthy). cellLabelColor is a brand-new colour surface — cell
+    // text previously had no explicit colour (CSS-inherited default,
+    // effectively #000000), so the new default matches pixel-identical
+    // (D-06). Alignment omitted — cell text is already centred via
+    // .heatmap-cell's layout-determined text-align (matches 01-11/01-12/
+    // 01-13 precedent: only the shared Title gets Alignment).
     fontSize = new formattingSettings.NumUpDown({
         name: "fontSize",
         displayName: "Cell Font Size",
@@ -146,11 +168,56 @@ class LabelSettingsCard extends FormattingSettingsCard {
         value: 12
     });
 
+    fontFamily = new formattingSettings.FontPicker({ name: "fontFamily", displayName: "Cell Font Family", value: "Segoe UI, sans-serif" });
+    bold = new formattingSettings.ToggleSwitch({ name: "bold", displayName: "Cell Bold", value: false });
+    italic = new formattingSettings.ToggleSwitch({ name: "italic", displayName: "Cell Italic", value: false });
+    underline = new formattingSettings.ToggleSwitch({ name: "underline", displayName: "Cell Underline", value: false });
+
+    cellLabelFont = new formattingSettings.FontControl({
+        name: "cellLabelFont", displayName: "Cell Value Font",
+        fontFamily: this.fontFamily, fontSize: this.fontSize,
+        bold: this.bold, italic: this.italic, underline: this.underline,
+    });
+
+    cellLabelColor = new formattingSettings.ColorPicker({
+        name: "cellLabelColor",
+        displayName: "Cell Value Colour",
+        description: "Colour for the numeric value text drawn on each cell (distinct from the cell fill)",
+        value: { value: "#000000" },
+        instanceKind: ConstantOrRule
+    });
+
+    // ─── Row/column header text (TEXT-01) ────────────────────────────
+    // FontControl composite reuses the existing bare "headerFontSize"
+    // property name alongside NEW prefixed sibling properties (avoids
+    // colliding with the cell font's bare family/bold/italic/underline
+    // names above, both live on the same labelSettings card). Bold
+    // defaults true — both header surfaces (.heatmap-col-header
+    // weight:700, .heatmap-row-label weight:600) are semibold-or-bolder
+    // pre-existing weights (weightFor idiom, matches pbiVarianceWaterfall/
+    // pbiNowVsThen precedent). fontColor (pre-existing, header colour) gets
+    // instanceKind ConstantOrRule added — no fx selector/altConstantSelector
+    // wiring (out of this plan's scope; only Cell Value Colour gets full
+    // fx wiring per the plan's acceptance criteria, matching the
+    // pbiBulletChart Labels/Axis precedent). Alignment omitted — column
+    // headers are centred and row labels are right-aligned via existing
+    // layout-determined CSS (matches 01-11/01-12/01-13 precedent).
     headerFontSize = new formattingSettings.NumUpDown({
         name: "headerFontSize",
         displayName: "Header Font Size",
         description: "Font size for column/row headers (px)",
         value: 11
+    });
+
+    headerFontFamily = new formattingSettings.FontPicker({ name: "headerFontFamily", displayName: "Header Font Family", value: "Segoe UI, sans-serif" });
+    headerBold = new formattingSettings.ToggleSwitch({ name: "headerBold", displayName: "Header Bold", value: true });
+    headerItalic = new formattingSettings.ToggleSwitch({ name: "headerItalic", displayName: "Header Italic", value: false });
+    headerUnderline = new formattingSettings.ToggleSwitch({ name: "headerUnderline", displayName: "Header Underline", value: false });
+
+    headerFont = new formattingSettings.FontControl({
+        name: "headerFont", displayName: "Header Font",
+        fontFamily: this.headerFontFamily, fontSize: this.headerFontSize,
+        bold: this.headerBold, italic: this.headerItalic, underline: this.headerUnderline,
     });
 
     fontColor = new formattingSettings.ColorPicker({
@@ -164,8 +231,9 @@ class LabelSettingsCard extends FormattingSettingsCard {
     name: string = "labelSettings";
     displayName: string = "Labels";
     slices: Array<FormattingSettingsSlice> = [
-        this.fontSize,
-        this.headerFontSize,
+        this.cellLabelFont,
+        this.cellLabelColor,
+        this.headerFont,
         this.fontColor
     ];
 }
@@ -201,91 +269,12 @@ class AxisSettingsCard extends FormattingSettingsCard {
     ];
 }
 
-class TitleSettingsCard extends FormattingSettingsCard {
-    showTitle = new formattingSettings.ToggleSwitch({
-        name: "showTitle",
-        displayName: "Show Title",
-        value: false
-    });
-
-    titleText = new formattingSettings.TextInput({
-        name: "titleText",
-        displayName: "Title Text",
-        placeholder: "Visual title",
-        value: ""
-    });
-
-    titleFontFamily = new formattingSettings.FontPicker({
-        name: "titleFontFamily",
-        displayName: "Font Family",
-        value: "Segoe UI, sans-serif"
-    });
-
-    titleFontSize = new formattingSettings.NumUpDown({
-        name: "titleFontSize",
-        displayName: "Font Size",
-        value: 14
-    });
-
-    titleBold = new formattingSettings.ToggleSwitch({
-        name: "titleBold",
-        displayName: "Bold",
-        value: true
-    });
-
-    titleItalic = new formattingSettings.ToggleSwitch({
-        name: "titleItalic",
-        displayName: "Italic",
-        value: false
-    });
-
-    titleUnderline = new formattingSettings.ToggleSwitch({
-        name: "titleUnderline",
-        displayName: "Underline",
-        value: false
-    });
-
-    titleFont = new formattingSettings.FontControl({
-        name: "titleFont",
-        displayName: "Font",
-        fontFamily: this.titleFontFamily,
-        fontSize: this.titleFontSize,
-        bold: this.titleBold,
-        italic: this.titleItalic,
-        underline: this.titleUnderline
-    });
-
-    titleAlign = new formattingSettings.AlignmentGroup({
-        name: "titleAlign",
-        displayName: "Alignment",
-        mode: powerbi.visuals.AlignmentGroupMode.Horizonal,
-        value: "left"
-    });
-
-    titleColor = new formattingSettings.ColorPicker({
-        name: "titleColor",
-        displayName: "Font Color",
-        value: { value: "#1a1a2e" },
-        instanceKind: ConstantOrRule
-    });
-
-    name: string = "titleSettings";
-    displayName: string = "Visual Title";
-    slices: Array<FormattingSettingsSlice> = [
-        this.showTitle,
-        this.titleText,
-        this.titleFont,
-        this.titleAlign,
-        this.titleColor
-    ];
-}
-
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     heatmapSettings = new HeatmapSettingsCard();
     columnSettings = new ColumnSettingsCard();
     labelSettings = new LabelSettingsCard();
     axisSettings = new AxisSettingsCard();
-    titleSettings = new TitleSettingsCard();
+    titleSettings = new TitleSettings();
     background = new BackgroundSettings();
 
     constructor() {
