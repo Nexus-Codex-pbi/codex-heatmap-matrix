@@ -467,5 +467,6 @@
             "default": true,
             "canvas": true
         }
-    }
+    },
+    "suppressDefaultTitle": true
 }
