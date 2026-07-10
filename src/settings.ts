@@ -11,6 +11,7 @@ import FormattingSettingsModel = formattingSettings.Model;
 import { BackgroundSettings } from "./shared/backgroundSettings";
 import { TitleSettings } from "./shared/titleSettings";
 import { textAlignFor } from "./shared/textFormatting";
+import { CardSignatureSettings } from "./shared/cardSignatureSettings";
 
 // TitleSettings now lives in _shared/formatting/ (D-13, D-14 — Plan 10
 // pilot); this visual's inline TitleSettingsCard (identical field-for-field
@@ -281,6 +282,7 @@ class AxisSettingsCard extends FormattingSettingsCard {
 }
 
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
+    cardSignature = new CardSignatureSettings();
     heatmapSettings = new HeatmapSettingsCard();
     columnSettings = new ColumnSettingsCard();
     labelSettings = new LabelSettingsCard();
@@ -306,5 +308,7 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
-    cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings, this.background];
+    cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings, this.background,
+        this.cardSignature
+    ];
 }

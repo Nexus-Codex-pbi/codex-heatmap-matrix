@@ -25,6 +25,7 @@ import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
+import { applyCardSignature } from "./shared/cardSignatureSettings";
 
 /** Luminance-based theme pick (same 0.55 threshold convention as the
  * pbiKpiCard v3 pilot, Plan 15) — decides whether the resolved
@@ -143,7 +144,7 @@ export class Visual implements IVisual {
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
-                this.cornerSignature?.update("#8f8ab8", { muted: true });
+                applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, { autoHex: "#8f8ab8", muted: true });
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -189,7 +190,7 @@ export class Visual implements IVisual {
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
-                this.cornerSignature?.update("#8f8ab8", { muted: true });
+                applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, { autoHex: "#8f8ab8", muted: true });
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -397,7 +398,7 @@ export class Visual implements IVisual {
             heat.zeroColor.selector = dataViewWildcard.createDataViewWildcardSelector(
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
-            heat.zeroColor.altConstantSelector = firstCellSelId ? firstCellSelId.getSelector() : undefined;
+            heat.zeroColor.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             this.zeroColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "heatmapSettings", propertyName: "zeroColor" },
@@ -414,7 +415,7 @@ export class Visual implements IVisual {
             lbl.cellLabelColor.selector = dataViewWildcard.createDataViewWildcardSelector(
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
-            lbl.cellLabelColor.altConstantSelector = firstCellSelId ? firstCellSelId.getSelector() : undefined;
+            lbl.cellLabelColor.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             this.cellLabelColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "labelSettings", propertyName: "cellLabelColor" },
@@ -591,8 +592,12 @@ export class Visual implements IVisual {
             // step above removed them along with the rest of the previous
             // render) so they keep painting above the title/table.
             this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
-            this.cornerSignature?.update(hc.active ? hc.color : accentHex, {
+            applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
+                autoHex: accentHex,
+                hcActive: hc.active,
+                hcColor: hc.color,
                 glowMix: hc.active ? 0 : (theme === "dark" ? 55 : 0),
+                muted: false,
             });
 
             this.eventService.renderingFinished(options);
