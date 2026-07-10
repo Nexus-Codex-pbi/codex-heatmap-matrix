@@ -20,11 +20,11 @@ import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
-import { toRgba } from "../../_shared/formatting/colorHelpers";
-import { Theme, accentToken } from "../../_shared/formatting/bandEngine";
-import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "../../_shared/formatting/designTokens";
-import { applyHighContrast, densityHatching } from "../../_shared/formatting/highContrast";
-import { makeCornerBrackets, CardSignatureHandle } from "../../_shared/formatting/cardSignature";
+import { toRgba } from "./shared/colorHelpers";
+import { Theme, accentToken } from "./shared/bandEngine";
+import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
+import { applyHighContrast, densityHatching } from "./shared/highContrast";
+import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 
 /** Luminance-based theme pick (same 0.55 threshold convention as the
  * pbiKpiCard v3 pilot, Plan 15) — decides whether the resolved
