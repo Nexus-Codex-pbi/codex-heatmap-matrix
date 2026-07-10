@@ -21,6 +21,21 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "../../_shared/formatting/colorHelpers";
+import { Theme, accentToken } from "../../_shared/formatting/bandEngine";
+import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "../../_shared/formatting/designTokens";
+import { applyHighContrast, densityHatching } from "../../_shared/formatting/highContrast";
+import { makeCornerBrackets, CardSignatureHandle } from "../../_shared/formatting/cardSignature";
+
+/** Luminance-based theme pick (same 0.55 threshold convention as the
+ * pbiKpiCard v3 pilot, Plan 15) — decides whether the resolved
+ * background reads as a "dark" or "light" surface. */
+function themeFor(hex: string): Theme {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i.exec(hex || "");
+    if (!m) return "dark";
+    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.55 ? "light" : "dark";
+}
 
 export class Visual implements IVisual {
     private target: HTMLElement;
@@ -42,6 +57,12 @@ export class Visual implements IVisual {
     // object-override resolution pattern as zeroColorHelper above, applied
     // to the cell LABEL text colour (distinct from the cell fill).
     private cellLabelColorHelper: ColorHelper | null = null;
+
+    // v3 corner-bracket card signature (LOOK-04) — created once since
+    // update() rebuilds the container's table DOM from scratch every
+    // render; its elements are re-appended (moved to the end) after each
+    // rebuild so they keep painting above the title/table.
+    private cornerSignature: CardSignatureHandle | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -66,6 +87,11 @@ export class Visual implements IVisual {
         };
         this.target.addEventListener("contextmenu", ctxHandler);
         this.container.addEventListener("contextmenu", ctxHandler);
+
+        this.cornerSignature = makeCornerBrackets(this.container, "#8f8ab8", {
+            variant: "cornerBracket",
+            mirror: true,
+        });
     }
 
     public update(options: VisualUpdateOptions): void {
@@ -94,6 +120,16 @@ export class Visual implements IVisual {
             const bgTransparencyPct = background.transparency.value ?? 100;
             this.container.style.backgroundColor = toRgba(bgHex, bgTransparencyPct);
 
+            // v3: theme pick + the single HC fallback rule (LOOK-04/05),
+            // computed once and reused everywhere colour is resolved below.
+            // --codex-accent drives the CSS-only cyan hover ring (visual.less).
+            const theme: Theme = themeFor(bgHex);
+            const colorPalette = this.host.colorPalette as any;
+            const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(theme).text, fallbackBackground: bgHex });
+            const accentHex = accentToken(theme);
+            this.container.style.setProperty("--codex-accent", hc.active ? hc.color : accentHex);
+            this.container.classList.toggle("hc-mode", hc.active);
+
             // Clear
             while (this.container.firstChild) {
                 this.container.removeChild(this.container.firstChild);
@@ -106,6 +142,8 @@ export class Visual implements IVisual {
                 msg.className = "heatmap-empty";
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
+                this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
+                this.cornerSignature?.update("#8f8ab8", { muted: true });
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -150,6 +188,8 @@ export class Visual implements IVisual {
                 msg.className = "heatmap-empty";
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
+                this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
+                this.cornerSignature?.update("#8f8ab8", { muted: true });
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -215,6 +255,9 @@ export class Visual implements IVisual {
             // Color scheme
             const schemeVal = (heat?.colorScheme?.value as { value?: string })?.value || "greenToRed";
             const lowC = heat?.lowColor?.value?.value || "#e0f5ef";
+            // Superseded by the v3 2-stop heatmapRamp() formula under the
+            // Custom scheme (LOOK-04) — kept read here (and in the format
+            // pane) for saved-report compatibility; no longer feeds render.
             const midC = heat?.midColor?.value?.value || "#fef3d6";
             const highC = heat?.highColor?.value?.value || "#fde8ea";
             const zeroC = heat?.zeroColor?.value?.value || "#f0eee6";
@@ -266,30 +309,37 @@ export class Visual implements IVisual {
             // no-override default (D-06).
             const cellTransparencyPct = heat?.cellTransparency?.value ?? 0;
 
-            const colorFor = (t: number): string => {
-                // Returns a HEX string (not rgb()) so the result can be fed
-                // through toRgba() at the call site below.
-                const lerp = (a: string, b: string, k: number): string => {
-                    const pa = parseInt(a.slice(1, 3), 16), pb = parseInt(b.slice(1, 3), 16);
-                    const ga = parseInt(a.slice(3, 5), 16), gb = parseInt(b.slice(3, 5), 16);
-                    const ba = parseInt(a.slice(5, 7), 16), bb = parseInt(b.slice(5, 7), 16);
-                    const r = Math.round(pa + k * (pb - pa));
-                    const g = Math.round(ga + k * (gb - ga));
-                    const bl = Math.round(ba + k * (bb - ba));
-                    const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
-                    return `#${toHex(r)}${toHex(g)}${toHex(bl)}`;
-                };
-                if (schemeVal === "greenToRed") {
-                    return t < 0.5 ? lerp("#e0f5ef", "#fef3d6", t * 2) : lerp("#fef3d6", "#fde8ea", (t - 0.5) * 2);
-                }
-                if (schemeVal === "redToGreen") {
-                    return t < 0.5 ? lerp("#fde8ea", "#fef3d6", t * 2) : lerp("#fef3d6", "#e0f5ef", (t - 0.5) * 2);
-                }
-                if (schemeVal === "sequential") {
-                    return lerp("#e3f2fd", "#0d47a1", t);
-                }
-                // custom
-                return t < 0.5 ? lerp(lowC, midC, t * 2) : lerp(midC, highC, (t - 0.5) * 2);
+            // ─── v3 single-hue perceptual ramp (LOOK-04) ─────────────────
+            // colorFor()/inkFor() now route through the frozen v3 engine's
+            // heatmapRamp()/ragScale() FORMULAS (cell = mix(surface, accent,
+            // t)) instead of the old hardcoded 2/3-stop lerp lists, so an fx
+            // colour override recomputes cleanly (D-16). "greenToRed"/
+            // "redToGreen" keep their literal diverging RAG semantics via
+            // ragScale (the ONE sanctioned non-single-hue exception, §2).
+            // "sequential"/"custom" are re-mapped onto the single-hue
+            // formula: "sequential" already meant a one-hue ramp in
+            // colour-theory terms (was previously a hardcoded blue lerp,
+            // now void-canvas -> theme accent, matching the v2 default);
+            // "custom" keeps resolving the EXISTING Low/High Colour pickers
+            // as the ramp's surface/accent inputs — midColor is superseded
+            // by the 2-stop formula and no longer read (documented, bounded
+            // deviation; the property remains in the format pane, D-16/D-06).
+            const isRag = schemeVal === "greenToRed" || schemeVal === "redToGreen";
+            const surf = surfaceTokens(theme);
+            const rampFor = (t: number): { cell: string; inkFlip: boolean } =>
+                schemeVal === "custom"
+                    ? heatmapRamp(t, 0, 1, lowC, highC, theme)
+                    : heatmapRamp(t, 0, 1, surf.canvas, accentHex, theme);
+
+            const colorFor = (t: number): string =>
+                isRag ? ragScale(schemeVal === "redToGreen" ? 1 - t : t, theme) : rampFor(t).cell;
+
+            const inkFor = (t: number): string => {
+                if (isRag) return theme === "dark" ? surf.canvas : surfaceTokens("light").card;
+                const { inkFlip } = rampFor(t);
+                return theme === "dark"
+                    ? (inkFlip ? surf.canvas : surf.text)
+                    : (inkFlip ? surfaceTokens("light").card : surf.text);
             };
 
             // Layout: optional yAxisTitle (left) + table; xAxisTitle below
@@ -418,6 +468,7 @@ export class Visual implements IVisual {
                     td.style.fontWeight = cellWeight;
                     td.style.fontStyle = cellFontStyle;
                     td.style.textDecoration = cellTextDecoration;
+                    td.style.fontFeatureSettings = TABULAR_NUMS;
                     const val = rowMap ? rowMap.get(col) : undefined;
                     let displayStr = "";
 
@@ -440,18 +491,52 @@ export class Visual implements IVisual {
                     // against this cell's own per-instance object overrides
                     // (mirrors the Zero/Null Colour resolution below).
                     // Applies to the LABEL text only; the cell FILL
-                    // (gradient / zeroColor) is untouched.
+                    // (gradient / zeroColor) is untouched. v3 (LOOK-04): the
+                    // STATIC fallback default is superseded by the per-cell
+                    // ink-flip formula below — an explicit fx rule or
+                    // format-pane swatch override still wins (the helper is
+                    // constructed per-cell so its own fallback default can
+                    // vary with t), D-16.
                     const cellInstanceObjects = cellIdx !== undefined ? rowCat.objects?.[cellIdx] : undefined;
-                    td.style.color = this.cellLabelColorHelper?.getColorForMeasure(cellInstanceObjects, "cellLabelColor") ?? cellLabelColorDefault;
 
                     if (val != null && isFinite(val) && val !== 0) {
                         const t = (val - dataMin) / (dataMax - dataMin);
-                        td.style.backgroundColor = toRgba(colorFor(t), cellTransparencyPct);
+                        if (hc.active) {
+                            // High-contrast fallback (LOOK-04): colour is
+                            // replaced by density hatching (dot pitch ∝
+                            // value) instead of hue — system slots only.
+                            const { pitch } = densityHatching(t);
+                            td.style.backgroundColor = hc.background;
+                            td.style.backgroundImage = `radial-gradient(circle, ${hc.color} 1px, transparent 1.4px)`;
+                            td.style.backgroundSize = `${pitch}px ${pitch}px`;
+                            td.style.border = `${hc.borderWidth}px solid ${hc.color}`;
+                            td.style.color = hc.color;
+                        } else {
+                            td.style.backgroundColor = toRgba(colorFor(t), cellTransparencyPct);
+                            td.style.backgroundImage = "none";
+                            td.style.border = "none";
+                            const inkHelper = new ColorHelper(
+                                this.host.colorPalette,
+                                { objectName: "labelSettings", propertyName: "cellLabelColor" },
+                                inkFor(t)
+                            );
+                            td.style.color = inkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
+                        }
                         displayStr = formatVal(val);
                         if (showVals) td.textContent = displayStr;
                     } else {
-                        const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(cellInstanceObjects, "zeroColor") ?? zeroC;
-                        td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
+                        if (hc.active) {
+                            td.style.backgroundColor = hc.background;
+                            td.style.backgroundImage = "none";
+                            td.style.border = `${hc.borderWidth}px solid ${hc.color}`;
+                            td.style.color = hc.color;
+                        } else {
+                            const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(cellInstanceObjects, "zeroColor") ?? zeroC;
+                            td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
+                            td.style.backgroundImage = "none";
+                            td.style.border = "none";
+                            td.style.color = this.cellLabelColorHelper?.getColorForMeasure(cellInstanceObjects, "cellLabelColor") ?? cellLabelColorDefault;
+                        }
                         if (val === 0) displayStr = formatVal(0);
                         if (showVals && val === 0) td.textContent = displayStr;
                     }
@@ -501,6 +586,15 @@ export class Visual implements IVisual {
                 this.container.appendChild(xAx);
             }
 
+            // v3 corner-bracket card signature — re-appended last (moves the
+            // existing elements to the end of the DOM, since the "Clear"
+            // step above removed them along with the rest of the previous
+            // render) so they keep painting above the title/table.
+            this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
+            this.cornerSignature?.update(hc.active ? hc.color : accentHex, {
+                glowMix: hc.active ? 0 : (theme === "dark" ? 55 : 0),
+            });
+
             this.eventService.renderingFinished(options);
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
@@ -512,6 +606,8 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        this.cornerSignature?.destroy();
+        this.cornerSignature = null;
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }

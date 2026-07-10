@@ -5,6 +5,7 @@
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     box-sizing: border-box;
     background: transparent;
+    position: relative;
 }
 
 .heatmap-table {
@@ -59,13 +60,25 @@
     text-align: center;
     padding: 6px 4px;
     font-weight: 500;
-    transition: opacity 0.15s ease;
+    font-feature-settings: "tnum";
+    transition: box-shadow 0.12s ease, transform 0.12s ease;
     min-width: 32px;
     white-space: nowrap;
 
+    /* v2 cyan hover ring (LOOK-04, §4 brand selected/focus treatment) —
+       replaces the old plain-opacity hover. --codex-accent is set on
+       .heatmap-container at render (theme/HC aware). */
     &:hover {
-        opacity: 0.8;
+        box-shadow: 0 0 0 1.5px var(--codex-accent, #00d9ff), 0 0 10px color-mix(in srgb, var(--codex-accent, #00d9ff) 45%, transparent);
+        transform: scale(1.05);
     }
+}
+
+/* High contrast (§8): drop all glow/transform on hover — density hatching
+   (applied inline per-cell) already carries the signal without hue. */
+.heatmap-container.hc-mode .heatmap-cell:hover {
+    box-shadow: none;
+    transform: none;
 }
 
 .heatmap-empty {

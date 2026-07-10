@@ -81,3 +81,22 @@
 - [ ] Setting a rule on Cell Value Colour resolves per-cell (each cell's text colour follows the rule against its own data)
 - [ ] Cell fill (gradient + zero/null) is unaffected by a Cell Value Colour rule
 - [ ] Default (no rule, untouched picker) renders black text — pixel-identical to the pre-plan inherited default
+
+## 14. v2 Single-Hue Perceptual Ramp (LOOK-04)
+- [ ] A brand-new (never-touched) report renders Colour Scheme = Sequential by default — void-canvas -> theme-accent single-hue ramp, not the old 3-stop green/amber/red
+- [ ] Sequential scheme: cell fill formula is `mix(surfaceTokens(theme).canvas, accentToken(theme), 0.08 + t*0.92)` — recomputes cleanly across the data range
+- [ ] Custom scheme: cell fill resolves via the SAME 2-stop formula using the existing Low Colour / High Colour pickers as surface/accent inputs — changing either picker recomputes the whole ramp (Mid Colour is superseded, documented, still present in the pane)
+- [ ] Green to Red / Red to Green: cells render via `ragScale()` (the sanctioned non-single-hue exception) — Green to Red is good(low)->bad(high), Red to Green is the reverse
+- [ ] Legacy saved reports that never touched Colour Scheme now render Sequential (documented v2 default flip, D-16) — reports that explicitly saved Green to Red/Red to Green/Custom still render exactly that scheme
+
+## 15. Ink Auto-Flip (LOOK-04)
+- [ ] Sequential/Custom ramp: cell text flips to the flipped (contrast) ink past t>0.55 on a dark background theme / t>0.45 on a light background theme
+- [ ] RAG scheme (Green to Red/Red to Green): ink is the theme-constant flip colour (no per-cell flip — RAG's three band colours are mid-saturation, contrast stays constant)
+- [ ] An explicit Cell Value Colour fx rule or format-pane swatch override still wins over the ink-flip default (D-16)
+
+## 16. Cyan Hover Ring + Corner Brackets + HC (LOOK-04/05)
+- [ ] Hovering any cell shows the suite's cyan focus ring (1.5px ring + soft glow) and a slight scale — replaces the old plain-opacity hover
+- [ ] Corner-bracket card signature (cyan, theme-aware) renders above the title on every render, including the empty/landing states (muted)
+- [ ] High contrast: cell colour is replaced by density hatching (dot pitch proportional to value) via a system-background dot pattern — no hue-only signal; cell border thickens to 2px system foreground; hover glow is suppressed
+- [ ] Numeric cell values render with tabular numerals (tnum) so digits stay aligned
+- [ ] Contextmenu block (`this.target`/`this.container` dual listener) is byte-unchanged from before this plan (git diff confirms)

@@ -23,6 +23,14 @@ export { TitleSettings, textAlignFor };
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
 class HeatmapSettingsCard extends FormattingSettingsCard {
+    // v3 default flip (LOOK-04, D-16): the declared default moves from
+    // "greenToRed" to "sequential" so a brand-new (or never-touched) report
+    // renders the v2 single-hue perceptual ramp by default. "greenToRed"/
+    // "redToGreen" keep their literal RAG-diverging meaning (now resolved
+    // via the sanctioned ragScale() exception) for anyone who explicitly
+    // picks them; "sequential"/"custom" render via the single-hue
+    // heatmapRamp() formula. No enum values renamed or added —
+    // capabilities.json is untouched.
     colorScheme = new formattingSettings.ItemDropdown({
         name: "colorScheme",
         displayName: "Colour Scheme",
@@ -32,7 +40,7 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
             { displayName: "Sequential", value: "sequential" },
             { displayName: "Custom", value: "custom" }
         ],
-        value: { displayName: "Green to Red", value: "greenToRed" }
+        value: { displayName: "Sequential", value: "sequential" }
     });
 
     lowColor = new formattingSettings.ColorPicker({
@@ -43,6 +51,9 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
+    // Superseded by the v3 2-stop heatmapRamp() formula under the Custom
+    // scheme (LOOK-04, mix(lowColor, highColor, t)) — kept in the pane for
+    // saved-report compatibility; no longer read at render (D-16/D-06).
     midColor = new formattingSettings.ColorPicker({
         name: "midColor",
         displayName: "Mid Colour",
