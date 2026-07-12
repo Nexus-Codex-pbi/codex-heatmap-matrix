@@ -166,7 +166,11 @@ export class Visual implements IVisual {
                 titleEl.style.textDecoration = titleSettings.titleUnderline?.value ? "underline" : "none";
                 titleEl.style.textAlign = textAlignFor(titleSettings.titleAlign?.value as string);
                 if (titleSettings.titleColor?.value?.value) {
-                    titleEl.style.color = titleSettings.titleColor.value.value;
+                    // Adaptive default (D-16 sentinel): untouched shared-Title navy
+                    // swaps to the dark text token on dark surfaces.
+                    const setTitle = titleSettings.titleColor.value.value;
+                    titleEl.style.color = setTitle === "#1a1a2e" && theme === "dark"
+                        ? surfaceTokens("dark").text : setTitle;
                 }
                 titleEl.style.padding = "8px 12px 4px";
                 this.container.appendChild(titleEl);
