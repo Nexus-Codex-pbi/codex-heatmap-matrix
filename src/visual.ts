@@ -26,6 +26,7 @@ import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "./shared/des
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
+import { applyBorder } from "./shared/borderSettings";
 
 /** Luminance-based theme pick (same 0.55 threshold convention as the
  * pbiKpiCard v3 pilot, Plan 15) — decides whether the resolved
@@ -124,12 +125,29 @@ export class Visual implements IVisual {
             // v3: theme pick + the single HC fallback rule (LOOK-04/05),
             // computed once and reused everywhere colour is resolved below.
             // --codex-accent drives the CSS-only cyan hover ring (visual.less).
-            const theme: Theme = themeFor(bgHex);
+            // Theme-source ladder: a painted Background governs; else the
+            // report-theme palette background, so a dark report theme adapts
+            // the matrix even with the (default) transparent container.
             const colorPalette = this.host.colorPalette as any;
+            const bgPainted = (bgTransparencyPct ?? 100) < 100;
+            const governingBg = bgPainted ? bgHex : (colorPalette?.background?.value ?? bgHex);
+            const theme: Theme = themeFor(governingBg);
             const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(theme).text, fallbackBackground: bgHex });
             const accentHex = accentToken(theme);
             this.container.style.setProperty("--codex-accent", hc.active ? hc.color : accentHex);
             this.container.classList.toggle("hc-mode", hc.active);
+
+            // Visual's own Border card — CSS border on the scroll container so
+            // it wraps the whole matrix; Corner Radius rounds the card. Applied
+            // before the empty-state return so an empty render is bordered too.
+            // Overflow left as-is (the container may scroll a large matrix).
+            this.container.style.boxSizing = "border-box";
+            applyBorder(this.container, this.formattingSettings.visualBorder, {
+                hcActive: hc.active,
+                hcColor: hc.color,
+                palette: colorPalette,
+                metadataObjects: options.dataViews?.[0]?.metadata?.objects,
+            });
 
             // Clear
             while (this.container.firstChild) {
@@ -169,8 +187,13 @@ export class Visual implements IVisual {
                     // Adaptive default (D-16 sentinel): untouched shared-Title navy
                     // swaps to the dark text token on dark surfaces.
                     const setTitle = titleSettings.titleColor.value.value;
-                    titleEl.style.color = setTitle === "#1a1a2e" && theme === "dark"
-                        ? surfaceTokens("dark").text : setTitle;
+                    // HC wins (system foreground); else adaptive navy→dark-token
+                    // on dark surfaces (previously the title had NO HC branch —
+                    // Neil-flagged gap, it stayed navy under high contrast).
+                    titleEl.style.color = hc.active
+                        ? hc.color
+                        : (setTitle === "#1a1a2e" && theme === "dark"
+                            ? surfaceTokens("dark").text : setTitle);
                 }
                 titleEl.style.padding = "8px 12px 4px";
                 this.container.appendChild(titleEl);

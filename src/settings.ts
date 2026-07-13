@@ -12,6 +12,7 @@ import { BackgroundSettings } from "./shared/backgroundSettings";
 import { TitleSettings } from "./shared/titleSettings";
 import { textAlignFor } from "./shared/textFormatting";
 import { CardSignatureSettings } from "./shared/cardSignatureSettings";
+import { BorderSettings } from "./shared/borderSettings";
 
 // TitleSettings now lives in _shared/formatting/ (D-13, D-14 — Plan 10
 // pilot); this visual's inline TitleSettingsCard (identical field-for-field
@@ -289,6 +290,7 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     axisSettings = new AxisSettingsCard();
     titleSettings = new TitleSettings();
     background = new BackgroundSettings();
+    visualBorder = new BorderSettings();
 
     constructor() {
         super();
@@ -309,6 +311,6 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     }
 
     cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings, this.background,
-        this.cardSignature
+        this.cardSignature, this.visualBorder
     ];
 }
