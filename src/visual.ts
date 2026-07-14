@@ -297,7 +297,15 @@ export class Visual implements IVisual {
 
             const cellFontSize = lbl?.fontSize?.value ?? 12;
             const headerFontSize = lbl?.headerFontSize?.value ?? 11;
-            const headerColor = lbl?.fontColor?.value?.value || "#333333";
+            // Header/row-label colour — D-16 adaptive: the untouched grey
+            // default swaps to the muted light token on dark surfaces (headers
+            // were NOT adapting to the background shift — Neil 2026-07-14);
+            // HC system foreground wins; a user-set colour is honoured as-is.
+            const HEADER_DEFAULT = "#333333";
+            const rawHeaderColor = lbl?.fontColor?.value?.value || HEADER_DEFAULT;
+            const headerColor = hc.active ? hc.color
+                : (rawHeaderColor === HEADER_DEFAULT && theme === "dark"
+                    ? surfaceTokens("dark").muted : rawHeaderColor);
 
             // Per-surface text treatment (TEXT-01) — cell value label font
             // + header font, siblings to the fontSize/headerFontSize reads
@@ -380,6 +388,14 @@ export class Visual implements IVisual {
             layoutWrap.style.flexDirection = "row";
             layoutWrap.style.alignItems = "stretch";
             layoutWrap.style.width = "100%";
+            // Horizontal breathing room so the last column doesn't hug the
+            // right edge / border (Neil 2026-07-14). Padding lives on this
+            // INNER wrapper, NEVER the root container — root padding creates a
+            // right-click dead zone that fails cert Policy 1180.2.5 (this
+            // visual was pinged on it repeatedly; see feedback_pbi_padding_
+            // deadzone). box-sizing keeps the width:100% table inside the box.
+            layoutWrap.style.boxSizing = "border-box";
+            layoutWrap.style.padding = "0 14px";
 
             if (showAxes && yAxisTitleText) {
                 const yAx = document.createElement("div");
