@@ -345,6 +345,15 @@ export class Visual implements IVisual {
             // no-override default (D-06).
             const cellTransparencyPct = heat?.cellTransparency?.value ?? 0;
 
+            // Peak highlight — outline the highest-valued cell(s). Opt-in, so an
+            // existing saved report is untouched until the author enables it.
+            // High-contrast mode owns the whole border channel (it encodes the
+            // cell edge itself), so the peak outline is suppressed under HC
+            // rather than fighting it.
+            const highlightPeak = heat?.highlightPeak?.value === true;
+            const peakBorderColor = heat?.peakBorderColor?.value?.value ?? "#FFFFFF";
+            const peakBorderWidth = heat?.peakBorderWidth?.value ?? 2;
+
             // ─── v3 single-hue perceptual ramp (LOOK-04) ─────────────────
             // colorFor()/inkFor() now route through the frozen v3 engine's
             // heatmapRamp()/ragScale() FORMULAS (cell = mix(surface, accent,
@@ -558,7 +567,11 @@ export class Visual implements IVisual {
                         } else {
                             td.style.backgroundColor = toRgba(colorFor(t), cellTransparencyPct);
                             td.style.backgroundImage = "none";
-                            td.style.border = "none";
+                            // Peak cell keeps its ramp fill and gains an outline;
+                            // every other cell stays borderless as before.
+                            td.style.border = (highlightPeak && val === dataMax)
+                                ? `${peakBorderWidth}px solid ${peakBorderColor}`
+                                : "none";
                             const inkHelper = new ColorHelper(
                                 this.host.colorPalette,
                                 { objectName: "labelSettings", propertyName: "cellLabelColor" },

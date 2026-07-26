@@ -184,6 +184,28 @@
             "numeric": true
           },
           "displayName": "Decimal Places"
+        },
+        "highlightPeak": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Highlight Peak"
+        },
+        "peakBorderColor": {
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          },
+          "displayName": "Peak Border Colour"
+        },
+        "peakBorderWidth": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Peak Border Width"
         }
       },
       "displayName": "Heatmap Settings"

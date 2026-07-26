@@ -126,6 +126,35 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
         value: 0
     });
 
+    // Peak highlight — outlines the single highest-valued cell so the eye lands
+    // on it immediately. Default OFF: this is a LIVE certified visual and the
+    // suite rule is additive-only, so an existing saved report must render
+    // exactly as before until the author opts in.
+    highlightPeak = new formattingSettings.ToggleSwitch({
+        name: "highlightPeak",
+        displayName: "Highlight Peak",
+        description: "Outline the highest-valued cell in the matrix",
+        value: false
+    });
+
+    peakBorderColor = new formattingSettings.ColorPicker({
+        name: "peakBorderColor",
+        displayName: "Peak Border Colour",
+        description: "Outline colour for the highest-valued cell",
+        value: { value: "#FFFFFF" }
+    });
+
+    peakBorderWidth = new formattingSettings.NumUpDown({
+        name: "peakBorderWidth",
+        displayName: "Peak Border Width",
+        description: "Outline thickness for the highest-valued cell",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 6 }
+        }
+    });
+
     name: string = "heatmapSettings";
     displayName: string = "Heatmap";
     slices: Array<FormattingSettingsSlice> = [
@@ -138,7 +167,10 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
         this.cellTransparency,
         this.showValues,
         this.valueFormat,
-        this.decimalPlaces
+        this.decimalPlaces,
+        this.highlightPeak,
+        this.peakBorderColor,
+        this.peakBorderWidth
     ];
 }
 
