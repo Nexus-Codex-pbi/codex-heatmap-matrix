@@ -226,6 +226,14 @@ export class Visual implements IVisual {
             const colCat = categories[colCatIndex];
 
             const dataMap = new Map<string, Map<string, number>>();
+            // 1180.2.4 Data Types — the Cell Value well accepts a TEXT column, not
+            // just a measure, and the value then arrives as a string. Without this
+            // map `Number("North")` is NaN and the cell renders blank, which is the
+            // exact repro Microsoft raised in the April 2026 review. The fix shipped
+            // in a5a4d1c and was silently deleted five days later by 02e5aa3
+            // ("stripped visual.ts back to bare minimum"); it was re-flagged on the
+            // 2026-08-03 review. Do not remove without replacing the behaviour.
+            const stringDataMap = new Map<string, Map<string, string>>();
             const cellIndexMap = new Map<string, number>(); // "row|col" -> source index
             const uniqueRows: string[] = [];
             const uniqueCols: string[] = [];
@@ -239,13 +247,24 @@ export class Visual implements IVisual {
                 const rowKey = String(rowCat.values[i] ?? "");
                 const colKey = String(colCat.values[i] ?? "");
                 const rawVal = values.values[i];
-                const numVal = typeof rawVal === "number" ? rawVal : Number(rawVal);
+                // 1180.2.4 — a string that isn't numeric-parseable is a text cell,
+                // not a broken number. Force numVal to NaN so it stays out of the
+                // dataMin/dataMax ramp domain below and renders via the text branch.
+                const isStringVal = typeof rawVal === "string" && isNaN(Number(rawVal));
+                const numVal = isStringVal
+                    ? NaN
+                    : (typeof rawVal === "number" ? rawVal : Number(rawVal));
 
                 if (!rowSet.has(rowKey)) { rowSet.add(rowKey); uniqueRows.push(rowKey); }
                 if (!colSet.has(colKey)) { colSet.add(colKey); uniqueCols.push(colKey); }
 
                 if (!dataMap.has(rowKey)) dataMap.set(rowKey, new Map<string, number>());
                 dataMap.get(rowKey).set(colKey, numVal);
+
+                if (isStringVal) {
+                    if (!stringDataMap.has(rowKey)) stringDataMap.set(rowKey, new Map<string, string>());
+                    stringDataMap.get(rowKey).set(colKey, rawVal as string);
+                }
 
                 const cellKey = `${rowKey}|${colKey}`;
                 if (!cellIndexMap.has(cellKey)) cellIndexMap.set(cellKey, i);
@@ -512,6 +531,7 @@ export class Visual implements IVisual {
                 tr.appendChild(rowLabel);
 
                 const rowMap = dataMap.get(row);
+                const strRowMap = stringDataMap.get(row);
                 for (const col of uniqueCols) {
                     const td = document.createElement("td");
                     td.className = "heatmap-cell";
@@ -523,6 +543,7 @@ export class Visual implements IVisual {
                     td.style.textDecoration = cellTextDecoration;
                     td.style.fontFeatureSettings = TABULAR_NUMS;
                     const val = rowMap ? rowMap.get(col) : undefined;
+                    const strVal = strRowMap ? strRowMap.get(col) : undefined;
                     let displayStr = "";
 
                     // Build selectionId for this cell (1180.2.2.3 Filter Out)
@@ -552,7 +573,29 @@ export class Visual implements IVisual {
                     // vary with t), D-16.
                     const cellInstanceObjects = cellIdx !== undefined ? rowCat.objects?.[cellIdx] : undefined;
 
-                    if (val != null && isFinite(val) && val !== 0) {
+                    if (strVal !== undefined) {
+                        // 1180.2.4 Data Types — text cell. A string has no position
+                        // on the colour ramp, so it takes the same fill as a
+                        // zero/null cell (that fill already means "no numeric
+                        // value"). Routed through zeroColorHelper /
+                        // cellLabelColorHelper / toRgba rather than the hardcoded
+                        // #f5f4f0 the 2026-04 version used, so theming, cell
+                        // transparency and the per-cell fx overrides all still apply.
+                        if (hc.active) {
+                            td.style.backgroundColor = hc.background;
+                            td.style.backgroundImage = "none";
+                            td.style.border = `${hc.borderWidth}px solid ${hc.color}`;
+                            td.style.color = hc.color;
+                        } else {
+                            const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(cellInstanceObjects, "zeroColor") ?? zeroC;
+                            td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
+                            td.style.backgroundImage = "none";
+                            td.style.border = "none";
+                            td.style.color = this.cellLabelColorHelper?.getColorForMeasure(cellInstanceObjects, "cellLabelColor") ?? cellLabelColorDefault;
+                        }
+                        displayStr = strVal;
+                        if (showVals) td.textContent = displayStr;
+                    } else if (val != null && isFinite(val) && val !== 0) {
                         const t = (val - dataMin) / (dataMax - dataMin);
                         if (hc.active) {
                             // High-contrast fallback (LOOK-04): colour is
