@@ -27,6 +27,7 @@ import { applyHighContrast, densityHatching } from "./shared/highContrast";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { applyBorder } from "./shared/borderSettings";
+import { LicenseGate } from "./shared/licensing";
 
 /** Largest grid we will build DOM for (1180.2.4 Data Types, large data).
  * Each cell is a <td> carrying ~10 inline style writes plus listeners, so the
@@ -79,7 +80,22 @@ export class Visual implements IVisual {
     // rebuild so they keep painting above the title/table.
     private cornerSignature: CardSignatureHandle | null = null;
 
+    private licenseGate: LicenseGate;
+
+    private lastUpdateOptions: VisualUpdateOptions | null = null;
+
+
     constructor(options: VisualConstructorOptions) {
+
+        // NO FREE TIER — an unlicensed user gets the whole visual blocked.
+
+        // The check is async, so re-run the last update once it resolves.
+
+        this.licenseGate = new LicenseGate(options.host, () => {
+
+            if (this.lastUpdateOptions) this.update(this.lastUpdateOptions);
+
+        });
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
         this.host = options.host;
@@ -111,6 +127,14 @@ export class Visual implements IVisual {
 
     public update(options: VisualUpdateOptions): void {
         this.eventService.renderingStarted(options);
+        this.lastUpdateOptions = options;
+
+        if (this.licenseGate.blockedThisFrame()) {
+            this.target.style.display = "none";
+            this.eventService.renderingFinished(options);
+            return;
+        }
+        this.target.style.display = "";
 
         try {
             const dataView: DataView = options.dataViews && options.dataViews[0];
