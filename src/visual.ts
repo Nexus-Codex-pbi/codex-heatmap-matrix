@@ -274,11 +274,18 @@ export class Visual implements IVisual {
                 const rowKey = rv === null || rv === undefined ? "" : (typeof rv === "string" ? rv : String(rv));
                 const colKey = cv === null || cv === undefined ? "" : (typeof cv === "string" ? cv : String(cv));
                 const rawVal = cellValues[i];
-                // 1180.2.4 — a string that isn't numeric-parseable is a text cell,
-                // not a broken number. Force numVal to NaN so it stays out of the
-                // dataMin/dataMax ramp domain below and renders via the text branch.
-                const isStringVal = typeof rawVal === "string" && isNaN(Number(rawVal));
-                const numVal = isStringVal
+                // 1180.2.4 — BLANK is not zero. Number(null) and Number("") both
+                // coerce to 0, so a null cell used to paint as a measured zero and
+                // print "0" — the visual asserting "this department did nothing"
+                // when the truth is "no data". Blanks are forced to NaN so they take
+                // the empty branch and show nothing; a real 0 still prints 0.
+                const isBlank = rawVal === null || rawVal === undefined
+                    || (typeof rawVal === "string" && rawVal.trim() === "");
+                // A string that isn't numeric-parseable is a text cell, not a broken
+                // number. Also NaN so it stays out of the dataMin/dataMax ramp domain
+                // and renders via the text branch below.
+                const isStringVal = !isBlank && typeof rawVal === "string" && isNaN(Number(rawVal));
+                const numVal = (isBlank || isStringVal)
                     ? NaN
                     : (typeof rawVal === "number" ? rawVal : Number(rawVal));
 
