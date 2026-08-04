@@ -15,11 +15,10 @@ We then audited the rest of 1180.2.4 and fixed two more:
 
 FIX 3 - Blank rendered as zero. Number(null) and Number("") both coerce to 0, so null cells printed "0". Blanks now render empty; a genuine 0 still prints 0.
 
-FIX 4 - Text values rendered blank. Cell Value accepts a text column and Number("North") is NaN. Text cells now display their string on the empty-cell fill, with theming, transparency and conditional formatting applied as for numeric cells. Tooltips show the string.
+FIX 4 - Text values rendered blank. Cell Value accepts a text column and Number("North") is NaN. Text cells now display their string on the empty-cell fill, with theming, transparency and conditional formatting applied as for numeric cells. Tooltips show the string. To verify, bind any text column to Cell Value.
 
 VERIFIED UNCHANGED: negatives ramp correctly and stay in the colour domain; large magnitudes render in full; numeric strings ("12.5") still parse as numbers; dataReductionAlgorithm remains 30,000. Twelve input shapes tested, including null, undefined, empty string, whitespace, real zero and string zero.
 
-IN THE SAMPLE: Page 1 is the standard numeric grid. "Data Testing Page" binds a text-valued measure (Activity Status) to Cell Value, demonstrating Fix 4.
 
 supportsHighlight is false deliberately: declaring it true without honouring the highlight array is itself a 1180.2.2 finding. It will be set when the renderer genuinely dims un-highlighted cells.
 
