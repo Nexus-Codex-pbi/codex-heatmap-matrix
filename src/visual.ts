@@ -28,6 +28,19 @@ import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature"
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { applyBorder } from "./shared/borderSettings";
 
+/** Largest grid we will build DOM for (1180.2.4 Data Types, large data).
+ * Each cell is a <td> carrying ~10 inline style writes plus listeners, so the
+ * cost is linear in CELLS, not in source rows — a million rows over
+ * Region x Month is a 100-cell grid and renders instantly. 5,000 cells is far
+ * past the point a heatmap is legible (a 100x50 grid) while staying well
+ * inside a frame budget; the 30,000 the reduction cap can deliver is not. */
+const MAX_RENDERED_CELLS = 5000;
+
+/** Neither axis renders more than this many bands regardless of the cell
+ * budget — 200 row labels is already unreadable, and it stops one enormous
+ * axis from consuming the whole allowance and collapsing the other to 1. */
+const MAX_GRID_AXIS = 200;
+
 /** Luminance-based theme pick (same 0.55 threshold convention as the
  * pbiKpiCard v3 pilot, Plan 15) — decides whether the resolved
  * background reads as a "dark" or "light" surface. */
@@ -234,19 +247,33 @@ export class Visual implements IVisual {
             // ("stripped visual.ts back to bare minimum"); it was re-flagged on the
             // 2026-08-03 review. Do not remove without replacing the behaviour.
             const stringDataMap = new Map<string, Map<string, string>>();
-            const cellIndexMap = new Map<string, number>(); // "row|col" -> source index
+            // 1180.2.4 Data Types (large data) — nested row->col->index rather than a
+            // flat map keyed on `${row}|${col}`. The flat form allocated one throwaway
+            // key string PER SOURCE ROW; at 1M rows that dominated the parse. Nested
+            // Maps key on strings we already hold.
+            const cellIndexMap = new Map<string, Map<string, number>>();
             const uniqueRows: string[] = [];
             const uniqueCols: string[] = [];
-            const rowSet = new Set<string>();
             const colSet = new Set<string>();
 
             let dataMin = Infinity;
             let dataMax = -Infinity;
 
-            for (let i = 0; i < rowCat.values.length; i++) {
-                const rowKey = String(rowCat.values[i] ?? "");
-                const colKey = String(colCat.values[i] ?? "");
-                const rawVal = values.values[i];
+            // Hoisted out of the loop condition — `.values` is a property access on
+            // the host's dataView object and this loop runs once per source row.
+            const rowValues = rowCat.values;
+            const colValues = colCat.values;
+            const cellValues = values.values;
+            const rowCount = rowValues.length;
+
+            for (let i = 0; i < rowCount; i++) {
+                const rv = rowValues[i];
+                const cv = colValues[i];
+                // Skip String() when the value is already a string — the common case
+                // for category columns, and String() on a string still costs a call.
+                const rowKey = rv === null || rv === undefined ? "" : (typeof rv === "string" ? rv : String(rv));
+                const colKey = cv === null || cv === undefined ? "" : (typeof cv === "string" ? cv : String(cv));
+                const rawVal = cellValues[i];
                 // 1180.2.4 — a string that isn't numeric-parseable is a text cell,
                 // not a broken number. Force numVal to NaN so it stays out of the
                 // dataMin/dataMax ramp domain below and renders via the text branch.
@@ -255,21 +282,36 @@ export class Visual implements IVisual {
                     ? NaN
                     : (typeof rawVal === "number" ? rawVal : Number(rawVal));
 
-                if (!rowSet.has(rowKey)) { rowSet.add(rowKey); uniqueRows.push(rowKey); }
+                // Single lookup per map instead of has()+get()+set() — three hashes
+                // become one on the hot path.
+                let rowCells = dataMap.get(rowKey);
+                if (rowCells === undefined) {
+                    rowCells = new Map<string, number>();
+                    dataMap.set(rowKey, rowCells);
+                    uniqueRows.push(rowKey);   // insertion order == first-seen order
+                }
+                rowCells.set(colKey, numVal);
+
                 if (!colSet.has(colKey)) { colSet.add(colKey); uniqueCols.push(colKey); }
 
-                if (!dataMap.has(rowKey)) dataMap.set(rowKey, new Map<string, number>());
-                dataMap.get(rowKey).set(colKey, numVal);
-
                 if (isStringVal) {
-                    if (!stringDataMap.has(rowKey)) stringDataMap.set(rowKey, new Map<string, string>());
-                    stringDataMap.get(rowKey).set(colKey, rawVal as string);
+                    let strCells = stringDataMap.get(rowKey);
+                    if (strCells === undefined) {
+                        strCells = new Map<string, string>();
+                        stringDataMap.set(rowKey, strCells);
+                    }
+                    strCells.set(colKey, rawVal as string);
                 }
 
-                const cellKey = `${rowKey}|${colKey}`;
-                if (!cellIndexMap.has(cellKey)) cellIndexMap.set(cellKey, i);
+                let idxCells = cellIndexMap.get(rowKey);
+                if (idxCells === undefined) {
+                    idxCells = new Map<string, number>();
+                    cellIndexMap.set(rowKey, idxCells);
+                }
+                if (!idxCells.has(colKey)) idxCells.set(colKey, i);
 
-                if (isFinite(numVal) && numVal !== 0) {
+                // Number.isFinite skips the coercion the global isFinite performs.
+                if (Number.isFinite(numVal) && numVal !== 0) {
                     if (numVal < dataMin) dataMin = numVal;
                     if (numVal > dataMax) dataMax = numVal;
                 }
@@ -278,6 +320,40 @@ export class Visual implements IVisual {
             if (!isFinite(dataMin)) dataMin = 0;
             if (!isFinite(dataMax)) dataMax = 0;
             if (dataMin === dataMax) { dataMin -= 1; dataMax += 1; }
+
+            // 1180.2.4 Data Types (large data) — BOUND THE RENDERED GRID.
+            //
+            // Row count is not the hazard: a million rows over Region x Month is a
+            // small grid. CELL count is, and cells are uniqueRows x uniqueCols, so a
+            // high-cardinality field on either axis (the cert reviewer bound a numeric
+            // column to Column Category) explodes it. At the declared 30,000-row
+            // reduction cap that is up to 30,000 <td> nodes, each with ~10 inline
+            // style writes, built synchronously — which locks the iframe and takes
+            // Power BI Desktop with it. That is the "stops responding" report.
+            //
+            // The policy's own remedy is "paginate, cap, or use virtualization". We
+            // cap, and we SAY SO on the canvas — a silently truncated heatmap is a
+            // lying heatmap. No legible grid approaches this size anyway.
+            const fullRowCount = uniqueRows.length;
+            const fullColCount = uniqueCols.length;
+            let gridTruncated = false;
+
+            if (fullRowCount * fullColCount > MAX_RENDERED_CELLS) {
+                let keepRows = Math.min(fullRowCount, MAX_GRID_AXIS);
+                let keepCols = Math.min(fullColCount, MAX_GRID_AXIS);
+                if (keepRows * keepCols > MAX_RENDERED_CELLS) {
+                    // Shrink both axes proportionally so the grid keeps its shape
+                    // rather than collapsing to a strip.
+                    const scale = Math.sqrt(MAX_RENDERED_CELLS / (keepRows * keepCols));
+                    keepRows = Math.max(1, Math.floor(keepRows * scale));
+                    keepCols = Math.max(1, Math.floor(keepCols * scale));
+                }
+                if (keepRows < fullRowCount || keepCols < fullColCount) {
+                    uniqueRows.length = keepRows;
+                    uniqueCols.length = keepCols;
+                    gridTruncated = true;
+                }
+            }
 
             // Pull format settings
             const heat = this.formattingSettings.heatmapSettings;
@@ -532,6 +608,7 @@ export class Visual implements IVisual {
 
                 const rowMap = dataMap.get(row);
                 const strRowMap = stringDataMap.get(row);
+                const idxRowMap = cellIndexMap.get(row);
                 for (const col of uniqueCols) {
                     const td = document.createElement("td");
                     td.className = "heatmap-cell";
@@ -550,7 +627,7 @@ export class Visual implements IVisual {
                     // — moved ahead of the colour branch below so the same
                     // cellIdx can resolve the Zero/Null Colour fx rule
                     // against this cell's own per-instance object overrides.
-                    const cellIdx = cellIndexMap.get(`${row}|${col}`);
+                    const cellIdx = idxRowMap ? idxRowMap.get(col) : undefined;
                     let cellSelId: ISelectionId | null = null;
                     if (cellIdx !== undefined) {
                         try {
@@ -674,6 +751,24 @@ export class Visual implements IVisual {
             table.appendChild(tbody);
             layoutWrap.appendChild(table);
             this.container.appendChild(layoutWrap);
+
+            // 1180.2.4 — say it out loud when the grid was capped. A heatmap that
+            // silently drops most of its data looks complete and is not; the reader
+            // has no way to tell. Rendered counts first, then the true totals.
+            if (gridTruncated) {
+                const notice = document.createElement("div");
+                notice.className = "heatmap-truncation-notice";
+                notice.textContent =
+                    `Showing ${uniqueRows.length.toLocaleString()} of ${fullRowCount.toLocaleString()} rows `
+                    + `and ${uniqueCols.length.toLocaleString()} of ${fullColCount.toLocaleString()} columns. `
+                    + `Filter the data or use lower-cardinality fields to see all of it.`;
+                notice.style.padding = "6px 12px 8px";
+                notice.style.fontSize = `${Math.max(10, headerFontSize - 1)}px`;
+                notice.style.fontFamily = headerFontFamily;
+                notice.style.color = headerColor;
+                notice.style.opacity = hc.active ? "1" : "0.85";
+                this.container.appendChild(notice);
+            }
 
             if (showAxes && xAxisTitleText) {
                 const xAx = document.createElement("div");
