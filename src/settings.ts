@@ -53,9 +53,10 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
-    // Superseded by the v3 2-stop heatmapRamp() formula under the Custom
-    // scheme (LOOK-04, mix(lowColor, highColor, t)) — kept in the pane for
-    // saved-report compatibility; no longer read at render (D-16/D-06).
+    // Consumed as the midpoint of a three-stop Custom ramp, but only when the
+    // author has actually set it (NEXUS cycle-05 §4). Untouched, the v3 2-stop
+    // heatmapRamp() formula (mix(lowColor, highColor, t)) still governs, so an
+    // old saved report renders byte-identically (D-16/D-06).
     midColor = new formattingSettings.ColorPicker({
         name: "midColor",
         displayName: "Mid Colour",

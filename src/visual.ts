@@ -22,7 +22,7 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba, compositeOver, contrastInk } from "./shared/colorHelpers";
 import { Theme, accentToken } from "./shared/bandEngine";
-import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
+import { heatmapRamp, ragScale, surfaceTokens, mix, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
@@ -149,6 +149,15 @@ export class Visual implements IVisual {
             // settings.ts specifically so an OLD saved report (this
             // property never previously existed) renders alpha 0 —
             // pixel-identical to "nothing painted" (D-06).
+            // The raw, card-level format objects as the host delivered them.
+            // The formatting model cannot distinguish "the author set this to
+            // the same value as the default" from "the author never touched
+            // it"; metadata.objects can, because an untouched property is
+            // simply absent. Several NEXUS corrections turn on exactly that
+            // distinction (§2, §4, §5), and applyBorder below already reads
+            // the same object, so this is the existing idiom, named once.
+            const metadataObjects = dataView?.metadata?.objects as any;
+
             const background = this.formattingSettings.background;
             const bgHex = background.backgroundColor.value?.value ?? "#ffffff";
             const bgTransparencyPct = background.transparency.value ?? 100;
@@ -486,9 +495,10 @@ export class Visual implements IVisual {
             // Color scheme
             const schemeVal = (heat?.colorScheme?.value as { value?: string })?.value || "greenToRed";
             const lowC = heat?.lowColor?.value?.value || "#e0f5ef";
-            // Superseded by the v3 2-stop heatmapRamp() formula under the
-            // Custom scheme (LOOK-04) — kept read here (and in the format
-            // pane) for saved-report compatibility; no longer feeds render.
+            // Read by the three-stop Custom ramp below, but ONLY when the
+            // author has actually set it (NEXUS cycle-05 §4) — an untouched
+            // Mid Colour keeps the v3 two-stop heatmapRamp() formula so old
+            // saved reports are byte-identical.
             const midC = heat?.midColor?.value?.value || "#fef3d6";
             const highC = heat?.highColor?.value?.value || "#fde8ea";
             const zeroC = heat?.zeroColor?.value?.value || "#f0eee6";
@@ -588,8 +598,27 @@ export class Visual implements IVisual {
                     ? heatmapRamp(t, 0, 1, lowC, highC, theme)
                     : heatmapRamp(t, 0, 1, surf.canvas, accentHex, theme);
 
-            const colorFor = (t: number): string =>
-                isRag ? ragScale(schemeVal === "redToGreen" ? 1 - t : t, theme) : rampFor(t).cell;
+            // ─── Custom Mid Colour is no longer a no-op (NEXUS cycle-05 §4) ──
+            // The v3 rewrite replaced Custom's three-stop lerp with the
+            // two-stop heatmapRamp() formula and left the Mid Colour picker in
+            // the pane, where it reported its value and could not change a
+            // single pixel. §4's correction offers two ways out; the second
+            // ("restore a functional midpoint") is taken, narrowed by its own
+            // final clause ("preserve saved metadata compatibility") to the
+            // case where the author ACTUALLY SET the control — i.e. midColor
+            // is present in metadata.objects. A saved report that never
+            // touched Mid Colour keeps the two-stop ramp byte-for-byte; a
+            // report that did set it finally gets what it asked for.
+            const midExplicit = metadataObjects?.heatmapSettings?.midColor !== undefined;
+            const useCustomMid = schemeVal === "custom" && midExplicit;
+            const colorFor = (t: number): string => {
+                if (isRag) return ragScale(schemeVal === "redToGreen" ? 1 - t : t, theme);
+                if (useCustomMid) {
+                    const u = Math.max(0, Math.min(1, t));
+                    return u <= 0.5 ? mix(lowC, midC, u * 2) : mix(midC, highC, (u - 0.5) * 2);
+                }
+                return rampFor(t).cell;
+            };
 
             // ─── Adaptive ink from the COMPOSITED cell (NEXUS cycle-05 §1) ───
             // The two candidate inks per theme, named once. These are exactly
