@@ -253,10 +253,13 @@ export class Visual implements IVisual {
                 || !dataView.categorical.values || dataView.categorical.values.length < 1) {
                 const msg = document.createElement("div");
                 msg.className = "heatmap-empty";
+                if (hc.active) msg.style.color = hc.color;
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
-                applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, { autoHex: "#8f8ab8", muted: true });
+                applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, {
+                    autoHex: "#8f8ab8", muted: true, hcActive: hc.active, hcColor: hc.color, glowMix: 0,
+                });
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -321,10 +324,13 @@ export class Visual implements IVisual {
             if (rowCatIndex < 0 || colCatIndex < 0) {
                 const msg = document.createElement("div");
                 msg.className = "heatmap-empty";
+                if (hc.active) msg.style.color = hc.color;
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
-                applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, { autoHex: "#8f8ab8", muted: true });
+                applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, {
+                    autoHex: "#8f8ab8", muted: true, hcActive: hc.active, hcColor: hc.color, glowMix: 0,
+                });
                 this.eventService.renderingFinished(options);
                 return;
             }
