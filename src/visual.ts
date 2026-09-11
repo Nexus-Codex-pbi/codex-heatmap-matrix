@@ -20,7 +20,7 @@ import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
-import { toRgba, compositeOver, surfaceTone } from "./shared/colorHelpers";
+import { toRgba, compositeOver, contrastInk } from "./shared/colorHelpers";
 import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
@@ -583,57 +583,47 @@ export class Visual implements IVisual {
             const lightInk = theme === "dark" ? surf.text : surfaceTokens("light").card;
 
             // heatmapRamp()'s `inkFlip` is a function of the NORMALISED VALUE,
-            // not of the colour that ends up on screen. That is sound only
-            // while the ramp runs between the tokens it was calibrated on AND
-            // the fill is the surface. It stops being either in two ways, both
-            // of which NEXUS reproduced at 1:1 contrast:
+            // not of the colour that ends up on screen, and the flat per-theme
+            // constant the RAG schemes used is not a function of the cell at
+            // all. NEXUS reproduced three ways that reaches 1:1 contrast:
             //
             //   (a) Cell Transparency is applied AFTER the ink is chosen. At
             //       100 the cell paints NOTHING, so the label lands on the
             //       page while its ink was picked for a fill nobody sees —
             //       cyan `30` rendered rgb(7,7,26) on a rgb(7,7,26) page.
-            //       No property of the fill can decide the ink here.
             //   (b) Under Custom the AUTHOR supplies both endpoints, so the
             //       ramp's assumed brightness direction can be inverted —
             //       Low=black/High=white made the maximum cell white on white.
+            //   (c) Even opaque, on-token cells: t=0.495 trips inkFlip while
+            //       the fill still reads light, so `49` rendered white on
+            //       rgb(110, 181, 202) at 2.301:1.
             //
-            // In those two cases, and only those, the ink is chosen from the
-            // surface actually seen: the fill composited at Cell Transparency
-            // over the backdrop the cell sits on, through the suite-shared
-            // compositeOver()/surfaceTone() pair (same Rec.601 weights and
-            // 0.55 threshold as themeFor above — no threshold moves).
+            // All three are the same mistake — judging ink by a proxy for the
+            // surface instead of by the surface. Ink is now chosen by MEASURED
+            // CONTRAST against the colour actually seen: the resolved fill
+            // composited at Cell Transparency over the backdrop the cell sits
+            // on, then contrastInk() picks whichever of the two candidates has
+            // the higher WCAG ratio on it.
             //
-            // Everywhere else the calibrated ramp choice is KEPT, because it
-            // measurably beats the tone bucket on this suite's own ramp:
-            // surfaceTone() reads saturated cyan such as rgb(1, 191, 227) as
-            // "dark" on Rec.601 (0.542) while its WCAG luminance is high, so
-            // routing the opaque Sequential dark preset through it drops the
-            // worst cell from 9.07:1 to 1.798:1. Measured over every recorded
-            // cell of all six presets in
+            // A tone BUCKET cannot do this job here. surfaceTone()'s Rec.601
+            // brightness reads saturated cyan rgb(1, 191, 227) as 0.542 —
+            // "dark" — and puts near-white ink on it at 1.798:1, where black
+            // scores 9.07:1; routing the opaque Sequential dark preset through
+            // the bucket made 12 of 35 cells worse. Measured over all 184
+            // recorded cells of eight fixtures, the bucket left 11 cells under
+            // 3:1 and contrastInk() left none. Evidence:
             // reproducers/pbi-cycle-05-heatmap-matrix-2026-09-11/probe-MINE-1.py.
-            // The residual mid-ramp weakness the review also cites (the `49`
-            // at 2.301:1 in Sequential light) is NOT closed by the tone bucket
-            // either; closing it needs a contrast-maximising chooser in
-            // _shared/formatting/, which is a suite-level decision, not a
-            // local one.
+            // surfaceTone() stays the right tool for neutral card/background
+            // surfaces; a data-driven ramp fill is not one.
             //
-            // Explicit overrides still win: the per-cell fx swatch/rule is
-            // resolved by the ColorHelper below with this only as its
-            // fallback, and high contrast never reaches here at all.
-            const rampInkUncalibrated = cellTransparencyPct > 0 || schemeVal === "custom";
-
-            const inkFor = (t: number): string => {
-                if (rampInkUncalibrated) {
-                    return surfaceTone(compositeOver(colorFor(t), cellTransparencyPct, cellBackdrop)) === "light"
-                        ? darkInk
-                        : lightInk;
-                }
-                if (isRag) return theme === "dark" ? darkInk : lightInk;
-                const { inkFlip } = rampFor(t);
-                return theme === "dark"
-                    ? (inkFlip ? darkInk : lightInk)
-                    : (inkFlip ? lightInk : darkInk);
-            };
+            // The candidates are still only the two tokens the old branch
+            // could return, so no new colour enters the visual. Explicit
+            // overrides still win: the per-cell fx swatch/rule is resolved by
+            // the ColorHelper below with this only as its fallback, and high
+            // contrast never reaches here at all (it owns its own branch, and
+            // the zero/blank/text branch keeps its own Cell Value Colour).
+            const inkFor = (t: number): string =>
+                contrastInk(compositeOver(colorFor(t), cellTransparencyPct, cellBackdrop), darkInk, lightInk);
 
             // Layout: optional yAxisTitle (left) + table; xAxisTitle below
             const showAxes = ax?.showAxisTitles?.value === true;
