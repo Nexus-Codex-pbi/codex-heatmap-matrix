@@ -1060,6 +1060,16 @@ export class Visual implements IVisual {
                         if (showVals && val === 0) td.textContent = displayStr;
                     }
 
+                    // Keep density hatching around the label, never behind its glyphs.
+                    if (hc.active && showVals && displayStr) {
+                        const label = document.createElement("span");
+                        label.textContent = displayStr;
+                        label.style.backgroundColor = hc.background;
+                        label.style.color = hc.color;
+                        label.style.padding = "0 2px";
+                        td.replaceChildren(label);
+                    }
+
                     if (cellSelId) {
                         td.style.cursor = "pointer";
                         td.addEventListener("click", (ev: MouseEvent) => {
