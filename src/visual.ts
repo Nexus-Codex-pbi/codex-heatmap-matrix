@@ -322,6 +322,7 @@ export class Visual implements IVisual {
 
             let dataMin = Infinity;
             let dataMax = -Infinity;
+            let rawMax = -Infinity;
 
             // Hoisted out of the loop condition — `.values` is a property access on
             // the host's dataView object and this loop runs once per source row.
@@ -397,11 +398,33 @@ export class Visual implements IVisual {
                     if (numVal < dataMin) dataMin = numVal;
                     if (numVal > dataMax) dataMax = numVal;
                 }
+                // The REAL maximum, kept separately from the colour domain
+                // (NEXUS cycle-05 §6). Zeros count here even though they are
+                // deliberately off the colour ramp above, so an all-zero grid
+                // still has a defined peak.
+                if (Number.isFinite(numVal) && numVal > rawMax) rawMax = numVal;
             }
 
             if (!isFinite(dataMin)) dataMin = 0;
             if (!isFinite(dataMax)) dataMax = 0;
             if (dataMin === dataMax) { dataMin -= 1; dataMax += 1; }
+
+            // ─── Peak value (NEXUS cycle-05 §6) ──────────────────────────
+            // Highlight Peak used to compare each cell against dataMax — the
+            // COLOUR DOMAIN's maximum, not the data's. Those are the same
+            // number only when the data has at least two distinct nonzero
+            // values: with one value, or with every value equal, the ±1
+            // expansion two lines up moves dataMax off every real cell, so
+            // nothing was ever outlined; and zeros never reach the numeric
+            // branch at all, so an all-zero grid had no peak either.
+            //
+            // peakValue is the real maximum over every finite numeric cell,
+            // zeros included, and null when there is no numeric cell at all.
+            // That is the explicit zero-only definition the correction asks
+            // for: when every value is zero, zero IS the maximum and the zero
+            // cells carry the outline. High contrast still owns the border
+            // channel and suppresses the outline, which §6 states is intended.
+            const peakValue: number | null = isFinite(rawMax) ? rawMax : null;
 
             // ─── Row ordering by the Sort Order role (NEXUS cycle-05 §3) ────
             // capabilities.json has advertised Sort Order as an "Optional
@@ -933,7 +956,7 @@ export class Visual implements IVisual {
                             td.style.backgroundImage = "none";
                             // Peak cell keeps its ramp fill and gains an outline;
                             // every other cell stays borderless as before.
-                            td.style.border = (highlightPeak && val === dataMax)
+                            td.style.border = (highlightPeak && val === peakValue)
                                 ? `${peakBorderWidth}px solid ${peakBorderColor}`
                                 : "none";
                             // NEXUS cycle-05 §2: the automatic ink is the
@@ -972,6 +995,14 @@ export class Visual implements IVisual {
                                 { objectName: "labelSettings", propertyName: "cellLabelColor" },
                                 zeroInkFor(resolvedZeroColor)
                             );
+                            // Zero-only peak (NEXUS cycle-05 §6): when every
+                            // numeric cell is zero, zero IS the maximum, so the
+                            // zero cells are the peak. A zero in a grid with any
+                            // larger value is never the peak, and a blank/null
+                            // cell never is — it has no value to be maximal.
+                            td.style.border = (highlightPeak && val === 0 && peakValue === 0)
+                                ? `${peakBorderWidth}px solid ${peakBorderColor}`
+                                : "none";
                             td.style.color = zeroInkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
                         }
                         if (val === 0) displayStr = formatVal(0);
