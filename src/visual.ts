@@ -166,9 +166,6 @@ export class Visual implements IVisual {
             // report-theme palette background, so a dark report theme adapts
             // the matrix even with the (default) transparent container.
             const colorPalette = this.host.colorPalette as any;
-            const bgPainted = (bgTransparencyPct ?? 100) < 100;
-            const governingBg = bgPainted ? bgHex : (colorPalette?.background?.value ?? bgHex);
-            const theme: Theme = themeFor(governingBg);
             // The surface a CELL is actually painted on (NEXUS cycle-05 §1):
             // this visual's own Background card composited over whatever the
             // host reports as the page colour. This is the `behind` argument
@@ -176,6 +173,21 @@ export class Visual implements IVisual {
             // really sees — NOT bgHex, which at Cell Transparency 100 is
             // painting nothing at all.
             const cellBackdrop = compositeOver(bgHex, bgTransparencyPct, colorPalette?.background?.value ?? bgHex);
+            // …and it is the SAME surface the theme must be picked from
+            // (NEXUS cycle-05 §1, related limitation, this branch). The old
+            // ladder took the RAW bgHex whenever the Background card was
+            // painted at all, so black at 95% transparency — 5% ink over a
+            // white page — selected the dark theme and rendered the muted
+            // dark header token rgb(143, 138, 184) on what a viewer sees as
+            // near-white. Compositing first is a strict generalisation of the
+            // ladder it replaces, not a new behaviour: at transparency 100
+            // compositeOver() returns the palette background exactly (the old
+            // else-branch) and at 0 it returns bgHex exactly (the old
+            // then-branch), so every saved report that never moved the slider
+            // off an endpoint renders pixel-identically. Only a partially
+            // transparent Background card can differ — and there the composite
+            // is simply the truth.
+            const theme: Theme = themeFor(cellBackdrop);
             const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(theme).text, fallbackBackground: bgHex });
             const accentHex = accentToken(theme);
             this.container.style.setProperty("--codex-accent", hc.active ? hc.color : accentHex);
