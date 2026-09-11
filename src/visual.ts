@@ -20,7 +20,7 @@ import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
-import { toRgba, compositeOver, contrastInk } from "./shared/colorHelpers";
+import { toRgba, compositeOver, contrastInk, contrastRatio } from "./shared/colorHelpers";
 import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, mix, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
@@ -708,11 +708,14 @@ export class Visual implements IVisual {
             };
 
             // ─── Adaptive ink from the COMPOSITED cell (NEXUS cycle-05 §1) ───
-            // The two candidate inks per theme, named once. These are exactly
-            // the colours the old branch could return, so nothing below can
-            // introduce a colour this visual did not already paint (D-06).
+            // Prefer the existing theme inks when they meet the contrast floor.
             const darkInk = theme === "dark" ? surf.canvas : surf.text;
             const lightInk = theme === "dark" ? surf.text : surfaceTokens("light").card;
+            const automaticInk = (surface: string): string => {
+                const themed = contrastInk(surface, darkInk, lightInk);
+                return contrastRatio(surface, themed) >= 4.5
+                    ? themed : contrastInk(surface, "#000000", "#ffffff");
+            };
 
             // heatmapRamp()'s `inkFlip` is a function of the NORMALISED VALUE,
             // not of the colour that ends up on screen, and the flat per-theme
@@ -748,14 +751,14 @@ export class Visual implements IVisual {
             // surfaceTone() stays the right tool for neutral card/background
             // surfaces; a data-driven ramp fill is not one.
             //
-            // The candidates are still only the two tokens the old branch
-            // could return, so no new colour enters the visual. Explicit
-            // overrides still win: the per-cell fx swatch/rule is resolved by
+            // When neither theme token reaches 4.5:1, black/white supplies
+            // a readable fallback. Explicit overrides still win: the per-cell
+            // fx swatch/rule is resolved by
             // the ColorHelper below with this only as its fallback, and high
             // contrast never reaches here at all (it owns its own branch, and
             // the zero/blank/text branch keeps its own Cell Value Colour).
             const inkFor = (t: number): string =>
-                contrastInk(compositeOver(colorFor(t), cellTransparencyPct, cellBackdrop), darkInk, lightInk);
+                automaticInk(compositeOver(colorFor(t), cellTransparencyPct, cellBackdrop));
 
             // ─── …and the same rule for the OTHER fill (NEXUS cycle-05 §1) ───
             // A zero, blank or text cell is not on the ramp — it is painted
@@ -770,19 +773,19 @@ export class Visual implements IVisual {
             // the round-1 fix deliberately did not reach.
             //
             // So: the SAME chooser, on the resolved zero fill, composited at
-            // Cell Transparency over the same backdrop. Candidates are still
-            // only darkInk/lightInk, so no new colour enters the visual.
+            // Cell Transparency over the same backdrop, including the
+            // black/white fallback when both theme tokens miss the floor.
             //
             // Scope is deliberately narrow, per §2's correction ("distinguish
             // an untouched automatic default from an explicit static swatch
             // and honour the latter"): this applies ONLY while the swatch is
-            // still at its shipped default. An author-set card-level colour is
+            // absent from metadata. An author-set card-level colour is
             // returned verbatim, a per-cell fx rule/instance object still wins
             // over both (it is resolved by the ColorHelper, this is only its
             // fallback), and high contrast never reaches here.
             const zeroInkFor = (fillHex: string): string =>
                 cellLabelColorIsAuto
-                    ? contrastInk(compositeOver(fillHex, cellTransparencyPct, cellBackdrop), darkInk, lightInk)
+                    ? automaticInk(compositeOver(fillHex, cellTransparencyPct, cellBackdrop))
                     : cellLabelColorDefault;
 
             // Layout: optional yAxisTitle (left) + table; xAxisTitle below
