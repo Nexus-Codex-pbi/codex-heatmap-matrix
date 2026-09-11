@@ -228,6 +228,9 @@ export class Visual implements IVisual {
             const theme: Theme = themeFor(cellBackdrop);
             const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(theme).text, fallbackBackground: bgHex });
             if (hc.active) this.container.style.backgroundColor = hc.background;
+            const surfaceInk = (preferred: string): string =>
+                contrastRatio(preferred, cellBackdrop) >= 4.5
+                    ? preferred : contrastInk(cellBackdrop, "#000000", "#ffffff");
             const accentHex = accentToken(theme);
             this.container.style.setProperty("--codex-accent", hc.active ? hc.color : accentHex);
             this.container.classList.toggle("hc-mode", hc.active);
@@ -254,7 +257,7 @@ export class Visual implements IVisual {
                 || !dataView.categorical.values || dataView.categorical.values.length < 1) {
                 const msg = document.createElement("div");
                 msg.className = "heatmap-empty";
-                if (hc.active) msg.style.color = hc.color;
+                msg.style.color = hc.active ? hc.color : surfaceInk("#999999");
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
@@ -282,16 +285,13 @@ export class Visual implements IVisual {
                 titleEl.style.textDecoration = titleSettings.titleUnderline?.value ? "underline" : "none";
                 titleEl.style.textAlign = textAlignFor(titleSettings.titleAlign?.value as string);
                 if (titleSettings.titleColor?.value?.value) {
-                    // Adaptive default (D-16 sentinel): untouched shared-Title navy
-                    // swaps to the dark text token on dark surfaces.
                     const setTitle = titleSettings.titleColor.value.value;
-                    // HC wins (system foreground); else adaptive navy→dark-token
-                    // on dark surfaces (previously the title had NO HC branch —
-                    // Neil-flagged gap, it stayed navy under high contrast).
+                    const autoTitle = metadataObjects?.titleSettings?.titleColor === undefined;
                     titleEl.style.color = hc.active
                         ? hc.color
-                        : (setTitle === "#1a1a2e" && theme === "dark"
-                            ? surfaceTokens("dark").text : setTitle);
+                        : (autoTitle
+                            ? surfaceInk(theme === "dark" ? surfaceTokens("dark").text : setTitle)
+                            : setTitle);
                 }
                 titleEl.style.padding = "8px 12px 4px";
                 this.container.appendChild(titleEl);
@@ -325,7 +325,7 @@ export class Visual implements IVisual {
             if (rowCatIndex < 0 || colCatIndex < 0) {
                 const msg = document.createElement("div");
                 msg.className = "heatmap-empty";
-                if (hc.active) msg.style.color = hc.color;
+                msg.style.color = hc.active ? hc.color : surfaceInk("#999999");
                 msg.textContent = this.localizationManager.getDisplayName("Visual_Landing_Message");
                 this.container.appendChild(msg);
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
@@ -590,9 +590,11 @@ export class Visual implements IVisual {
             // HC system foreground wins; a user-set colour is honoured as-is.
             const HEADER_DEFAULT = "#333333";
             const rawHeaderColor = lbl?.fontColor?.value?.value || HEADER_DEFAULT;
+            const autoHeader = metadataObjects?.labelSettings?.fontColor === undefined;
             const headerColor = hc.active ? hc.color
-                : (rawHeaderColor === HEADER_DEFAULT && theme === "dark"
-                    ? surfaceTokens("dark").muted : rawHeaderColor);
+                : (autoHeader
+                    ? surfaceInk(theme === "dark" ? surfaceTokens("dark").muted : HEADER_DEFAULT)
+                    : rawHeaderColor);
 
             // Per-surface text treatment (TEXT-01) — cell value label font
             // + header font, siblings to the fontSize/headerFontSize reads
@@ -1173,7 +1175,9 @@ export class Visual implements IVisual {
                 notice.style.fontSize = `${Math.max(10, headerFontSize - 1)}px`;
                 notice.style.fontFamily = headerFontFamily;
                 notice.style.color = headerColor;
-                notice.style.opacity = hc.active ? "1" : "0.85";
+                notice.style.opacity = hc.active
+                    || contrastRatio(compositeOver(headerColor, 15, cellBackdrop), cellBackdrop) < 4.5
+                    ? "1" : "0.85";
                 this.container.appendChild(notice);
             }
 
