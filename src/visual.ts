@@ -227,6 +227,7 @@ export class Visual implements IVisual {
             // is simply the truth.
             const theme: Theme = themeFor(cellBackdrop);
             const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(theme).text, fallbackBackground: bgHex });
+            if (hc.active) this.container.style.backgroundColor = hc.background;
             const accentHex = accentToken(theme);
             this.container.style.setProperty("--codex-accent", hc.active ? hc.color : accentHex);
             this.container.classList.toggle("hc-mode", hc.active);
