@@ -544,8 +544,28 @@ export class Visual implements IVisual {
             const cellLabelColorIsAuto = cellLabelColorDefault.toLowerCase() === CELL_LABEL_DEFAULT;
 
             const headerFontFamily = lbl?.headerFontFamily?.value || "Segoe UI, sans-serif";
-            const colHeaderWeight = weightFor(lbl?.headerBold?.value, "700");
-            const rowLabelWeight = weightFor(lbl?.headerBold?.value, "600");
+            // Header Bold (NEXUS cycle-05 §5). The weightFor idiom's "bold off
+            // falls back to the surface's pre-existing weight" rule is a no-op
+            // on these two surfaces, because their pre-existing weights are
+            // ALREADY bold: .heatmap-col-header is 700 and .heatmap-row-label
+            // is 600, so switching the toggle off changed column headers not at
+            // all and row labels only from 700 to semibold. The toggle also
+            // defaults ON, so those legacy weights are what every saved report
+            // is already showing.
+            //
+            // Correction line: "distinguish a legacy untouched default from an
+            // explicit off setting, so switching off can actually remove bold
+            // without silently changing old reports." So: absent from
+            // metadata.objects (never touched) keeps the legacy fallbacks
+            // exactly; explicitly false means regular 400 on both surfaces;
+            // explicitly true is 700 as before.
+            const headerBoldSet = metadataObjects?.labelSettings?.headerBold !== undefined;
+            const headerWeightFor = (legacyWeight: string): string =>
+                headerBoldSet
+                    ? (lbl?.headerBold?.value ? "700" : "400")
+                    : weightFor(lbl?.headerBold?.value, legacyWeight);
+            const colHeaderWeight = headerWeightFor("700");
+            const rowLabelWeight = headerWeightFor("600");
             const headerFontStyle = lbl?.headerItalic?.value ? "italic" : "normal";
             const headerTextDecoration = lbl?.headerUnderline?.value ? "underline" : "none";
 
