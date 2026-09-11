@@ -124,7 +124,11 @@ class HeatmapSettingsCard extends FormattingSettingsCard {
     decimalPlaces = new formattingSettings.NumUpDown({
         name: "decimalPlaces",
         displayName: "Decimal Places",
-        value: 0
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 20 }
+        }
     });
 
     // Peak highlight — outlines the single highest-valued cell so the eye lands

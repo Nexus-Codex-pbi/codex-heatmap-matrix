@@ -569,7 +569,10 @@ export class Visual implements IVisual {
             const cellRadius = heat?.cellBorderRadius?.value ?? 4;
             const showVals = heat?.showValues?.value !== false;
             const valueFormat = (heat?.valueFormat?.value as { value?: string })?.value || "number";
-            const decimals = heat?.decimalPlaces?.value ?? 0;
+            const rawDecimals = Number(heat?.decimalPlaces?.value ?? 0);
+            const decimals = Number.isFinite(rawDecimals)
+                ? Math.max(0, Math.min(20, Math.trunc(rawDecimals))) : 0;
+            heat.decimalPlaces.value = decimals;
 
             const cellFontSize = lbl?.fontSize?.value ?? 12;
             const headerFontSize = lbl?.headerFontSize?.value ?? 11;
