@@ -426,6 +426,8 @@ export class Visual implements IVisual {
                         stringDataMap.set(rowKey, strCells);
                     }
                     strCells.set(colKey, rawVal as string);
+                } else {
+                    stringDataMap.get(rowKey)?.delete(colKey);
                 }
 
                 let idxCells = cellIndexMap.get(rowKey);
@@ -433,18 +435,20 @@ export class Visual implements IVisual {
                     idxCells = new Map<string, number>();
                     cellIndexMap.set(rowKey, idxCells);
                 }
-                if (!idxCells.has(colKey)) idxCells.set(colKey, i);
+                idxCells.set(colKey, i);
+            }
 
-                // Number.isFinite skips the coercion the global isFinite performs.
-                if (Number.isFinite(numVal) && numVal !== 0) {
-                    if (numVal < dataMin) dataMin = numVal;
-                    if (numVal > dataMax) dataMax = numVal;
+            // Duplicate pairs use their latest value and instance metadata.
+            // Derive extrema from those surviving cells, not overwritten inputs.
+            for (const rowCells of dataMap.values()) {
+                for (const numVal of rowCells.values()) {
+                    if (!Number.isFinite(numVal)) continue;
+                    if (numVal !== 0) {
+                        if (numVal < dataMin) dataMin = numVal;
+                        if (numVal > dataMax) dataMax = numVal;
+                    }
+                    if (numVal > rawMax) rawMax = numVal;
                 }
-                // The REAL maximum, kept separately from the colour domain
-                // (NEXUS cycle-05 §6). Zeros count here even though they are
-                // deliberately off the colour ramp above, so an all-zero grid
-                // still has a defined peak.
-                if (Number.isFinite(numVal) && numVal > rawMax) rawMax = numVal;
             }
 
             if (!isFinite(dataMin)) dataMin = 0;
