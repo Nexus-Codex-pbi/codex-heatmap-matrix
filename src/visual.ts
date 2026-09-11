@@ -524,7 +524,8 @@ export class Visual implements IVisual {
             const fullColCount = uniqueCols.length;
             let gridTruncated = false;
 
-            if (fullRowCount * fullColCount > MAX_RENDERED_CELLS) {
+            if (fullRowCount > MAX_GRID_AXIS || fullColCount > MAX_GRID_AXIS
+                || fullRowCount * fullColCount > MAX_RENDERED_CELLS) {
                 let keepRows = Math.min(fullRowCount, MAX_GRID_AXIS);
                 let keepCols = Math.min(fullColCount, MAX_GRID_AXIS);
                 if (keepRows * keepCols > MAX_RENDERED_CELLS) {
