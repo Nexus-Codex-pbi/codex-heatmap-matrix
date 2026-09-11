@@ -1043,6 +1043,61 @@ export class Visual implements IVisual {
             layoutWrap.appendChild(table);
             this.container.appendChild(layoutWrap);
 
+            // ─── Fit pass (NEXUS cycle-05 §8) ─────────────────────────────
+            // The table is table-layout:fixed at width:100% with an 80px first
+            // column, so at 180x130 the seven data columns were ~7.42px wide
+            // while two-digit labels needed 17px: the numbers painted straight
+            // over their neighbours. Separately, at the ordinary 760px sample
+            // size the fixed 80px row-label column clipped "3 Wednesday"
+            // (86px of content in 82px of box).
+            //
+            // Correction line: "enforce a useful minimum table width and
+            // scroll horizontally, or apply a deliberate small-tile label
+            // policy instead of painting overlapping values." First
+            // alternative, measured rather than guessed — the DOM is already
+            // in the document here, so scrollWidth is the real content width
+            // at the real font. Two steps:
+            //   1. widen the row-label column to the longest label, clamped
+            //      80..200px. The 80px floor is today's width, so a report
+            //      whose labels already fit is untouched; the 200px ceiling
+            //      stops one enormous label eating the grid.
+            //   2. if any cell's content is wider than its box, give the table
+            //      a minimum width computed from that content and let the
+            //      container (already overflow:auto) scroll horizontally.
+            // Anything still clipped after both gets a title so the full text
+            // is reachable rather than merely painted over.
+            const rowLabelEls = Array.from(table.querySelectorAll<HTMLElement>(".heatmap-row-label"));
+            const headerEls = Array.from(table.querySelectorAll<HTMLElement>(".heatmap-col-header"));
+            const cellEls = Array.from(table.querySelectorAll<HTMLElement>(".heatmap-cell"));
+
+            const LABEL_MIN_WIDTH = 80;
+            const LABEL_MAX_WIDTH = 200;
+            let labelColWidth = LABEL_MIN_WIDTH;
+            for (const el of rowLabelEls) {
+                labelColWidth = Math.max(labelColWidth, Math.min(LABEL_MAX_WIDTH, el.scrollWidth + 4));
+            }
+            if (labelColWidth > LABEL_MIN_WIDTH) {
+                cornerCell.style.width = `${labelColWidth}px`;
+                cornerCell.style.minWidth = `${labelColWidth}px`;
+                for (const el of rowLabelEls) el.style.maxWidth = `${labelColWidth}px`;
+            }
+
+            let widestCell = 0;
+            for (const el of cellEls) widestCell = Math.max(widestCell, el.scrollWidth);
+            for (const el of headerEls) widestCell = Math.max(widestCell, el.scrollWidth);
+            if (widestCell > 0 && uniqueCols.length > 0) {
+                // border-spacing is 2px each side of every cell (visual.less),
+                // so a column occupies its content plus 4px of gap.
+                const neededWidth = labelColWidth + uniqueCols.length * (widestCell + 4) + 4;
+                if (neededWidth > table.clientWidth) {
+                    table.style.minWidth = `${neededWidth}px`;
+                }
+            }
+
+            for (const el of rowLabelEls.concat(headerEls, cellEls)) {
+                if (el.scrollWidth > el.clientWidth && el.textContent) el.title = el.textContent;
+            }
+
             // 1180.2.4 — say it out loud when the grid was capped. A heatmap that
             // silently drops most of its data looks complete and is not; the reader
             // has no way to tell. Rendered counts first, then the true totals.
