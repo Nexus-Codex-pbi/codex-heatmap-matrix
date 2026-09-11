@@ -69,11 +69,6 @@ export class Visual implements IVisual {
     // indexed the same way as the row/col arrays built in update().
     private zeroColorHelper: ColorHelper | null = null;
 
-    // State for the Cell Value Colour fx wiring (TEXT-02) — same per-cell
-    // object-override resolution pattern as zeroColorHelper above, applied
-    // to the cell LABEL text colour (distinct from the cell fill).
-    private cellLabelColorHelper: ColorHelper | null = null;
-
     // v3 corner-bracket card signature (LOOK-04) — created once since
     // update() rebuilds the container's table DOM from scratch every
     // render; its elements are re-appended (moved to the end) after each
@@ -527,7 +522,16 @@ export class Visual implements IVisual {
             const cellWeight = weightFor(lbl?.bold?.value, "500");
             const cellFontStyle = lbl?.italic?.value ? "italic" : "normal";
             const cellTextDecoration = lbl?.underline?.value ? "underline" : "none";
-            const cellLabelColorDefault = lbl?.cellLabelColor?.value?.value || "#000000";
+            // Cell Value Colour. CELL_LABEL_DEFAULT is the value settings.ts
+            // ships (settings.ts:231) and is the sentinel for "the author has
+            // never touched this swatch" — the same idiom HEADER_DEFAULT uses
+            // a few lines above for the header colour. An author who sets the
+            // swatch (to anything, black included) is honoured verbatim; only
+            // the untouched default is treated as "automatic" and resolved
+            // against the surface (NEXUS cycle-05 §1/§2).
+            const CELL_LABEL_DEFAULT = "#000000";
+            const cellLabelColorDefault = lbl?.cellLabelColor?.value?.value || CELL_LABEL_DEFAULT;
+            const cellLabelColorIsAuto = cellLabelColorDefault.toLowerCase() === CELL_LABEL_DEFAULT;
 
             const headerFontFamily = lbl?.headerFontFamily?.value || "Segoe UI, sans-serif";
             const colHeaderWeight = weightFor(lbl?.headerBold?.value, "700");
@@ -637,6 +641,34 @@ export class Visual implements IVisual {
             const inkFor = (t: number): string =>
                 contrastInk(compositeOver(colorFor(t), cellTransparencyPct, cellBackdrop), darkInk, lightInk);
 
+            // ─── …and the same rule for the OTHER fill (NEXUS cycle-05 §1) ───
+            // A zero, blank or text cell is not on the ramp — it is painted
+            // with Zero/Null Colour — but it is painted, and its label was
+            // taking Cell Value Colour's untouched #000000 default whatever it
+            // landed on. NEXUS measured that at Cell Transparency 100 over a
+            // #07071a page: black on the page itself, 1.05:1. The harness also
+            // records it at 1.3:1 on a plain author-set Zero Colour of
+            // #112233 with no transparency involved at all, so this is not a
+            // transparency edge case — it is the same "ink judged by a proxy
+            // for the surface" mistake as the ramp branch, in the one place
+            // the round-1 fix deliberately did not reach.
+            //
+            // So: the SAME chooser, on the resolved zero fill, composited at
+            // Cell Transparency over the same backdrop. Candidates are still
+            // only darkInk/lightInk, so no new colour enters the visual.
+            //
+            // Scope is deliberately narrow, per §2's correction ("distinguish
+            // an untouched automatic default from an explicit static swatch
+            // and honour the latter"): this applies ONLY while the swatch is
+            // still at its shipped default. An author-set card-level colour is
+            // returned verbatim, a per-cell fx rule/instance object still wins
+            // over both (it is resolved by the ColorHelper, this is only its
+            // fallback), and high contrast never reaches here.
+            const zeroInkFor = (fillHex: string): string =>
+                cellLabelColorIsAuto
+                    ? contrastInk(compositeOver(fillHex, cellTransparencyPct, cellBackdrop), darkInk, lightInk)
+                    : cellLabelColorDefault;
+
             // Layout: optional yAxisTitle (left) + table; xAxisTitle below
             const showAxes = ax?.showAxisTitles?.value === true;
             const xAxisTitleText = ax?.xAxisTitle?.value || "";
@@ -718,11 +750,11 @@ export class Visual implements IVisual {
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
             lbl.cellLabelColor.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
-            this.cellLabelColorHelper = new ColorHelper(
-                this.host.colorPalette,
-                { objectName: "labelSettings", propertyName: "cellLabelColor" },
-                cellLabelColorDefault
-            );
+            // No shared ColorHelper for this property any more: every branch
+            // that resolves it now needs a per-cell fallback (inkFor(t) on the
+            // ramp, zeroInkFor(resolvedZeroColor) on the zero/blank/text fill),
+            // so the helper is constructed at the cell. The selector wiring
+            // above is what drives the fx button and stays exactly as it was.
 
             const table = document.createElement("table");
             table.className = "heatmap-table";
@@ -810,7 +842,7 @@ export class Visual implements IVisual {
                         // on the colour ramp, so it takes the same fill as a
                         // zero/null cell (that fill already means "no numeric
                         // value"). Routed through zeroColorHelper /
-                        // cellLabelColorHelper / toRgba rather than the hardcoded
+                        // zeroInkFor / toRgba rather than the hardcoded
                         // #f5f4f0 the 2026-04 version used, so theming, cell
                         // transparency and the per-cell fx overrides all still apply.
                         if (hc.active) {
@@ -823,7 +855,15 @@ export class Visual implements IVisual {
                             td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
                             td.style.backgroundImage = "none";
                             td.style.border = "none";
-                            td.style.color = this.cellLabelColorHelper?.getColorForMeasure(cellInstanceObjects, "cellLabelColor") ?? cellLabelColorDefault;
+                            // Same per-cell ColorHelper shape as the ramp branch
+                            // below/above: an explicit fx rule or per-instance
+                            // object wins, and zeroInkFor() is only the fallback.
+                            const zeroInkHelper = new ColorHelper(
+                                this.host.colorPalette,
+                                { objectName: "labelSettings", propertyName: "cellLabelColor" },
+                                zeroInkFor(resolvedZeroColor)
+                            );
+                            td.style.color = zeroInkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
                         }
                         displayStr = strVal;
                         if (showVals) td.textContent = displayStr;
@@ -867,7 +907,15 @@ export class Visual implements IVisual {
                             td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
                             td.style.backgroundImage = "none";
                             td.style.border = "none";
-                            td.style.color = this.cellLabelColorHelper?.getColorForMeasure(cellInstanceObjects, "cellLabelColor") ?? cellLabelColorDefault;
+                            // Same per-cell ColorHelper shape as the ramp branch
+                            // below/above: an explicit fx rule or per-instance
+                            // object wins, and zeroInkFor() is only the fallback.
+                            const zeroInkHelper = new ColorHelper(
+                                this.host.colorPalette,
+                                { objectName: "labelSettings", propertyName: "cellLabelColor" },
+                                zeroInkFor(resolvedZeroColor)
+                            );
+                            td.style.color = zeroInkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
                         }
                         if (val === 0) displayStr = formatVal(0);
                         if (showVals && val === 0) td.textContent = displayStr;
