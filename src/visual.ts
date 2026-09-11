@@ -245,7 +245,20 @@ export class Visual implements IVisual {
 
             const categorical = dataView.categorical;
             const categories = categorical.categories;
-            const values = categorical.values[0];
+            // Value columns are resolved BY ROLE, not by position (NEXUS
+            // cycle-05 §3). capabilities.json binds TWO measures to the
+            // values well — Cell Value and the optional Sort Order — and
+            // taking values[0] both assumed a delivery order and left the
+            // second column unread, which is why the advertised row sort
+            // never happened. The positional fallback is kept so a host
+            // that reports no roles renders exactly as it does today.
+            const valueColumns = categorical.values;
+            const values = Array.prototype.find.call(
+                valueColumns, (column: powerbi.DataViewValueColumn) => column?.source?.roles?.["cellValue"]
+            ) as powerbi.DataViewValueColumn ?? valueColumns[0];
+            const sortColumn = Array.prototype.find.call(
+                valueColumns, (column: powerbi.DataViewValueColumn) => column?.source?.roles?.["sortOrder"]
+            ) as powerbi.DataViewValueColumn ?? null;
 
             let rowCatIndex = -1;
             let colCatIndex = -1;
@@ -286,6 +299,10 @@ export class Visual implements IVisual {
             const uniqueRows: string[] = [];
             const uniqueCols: string[] = [];
             const colSet = new Set<string>();
+            // Sort Order rank per ROW KEY (NEXUS cycle-05 §3) — keyed on the
+            // row category the rank arrived with, never on a position, so the
+            // ordering survives every later lookup unchanged.
+            const rowRanks = new Map<string, number>();
 
             let dataMin = Infinity;
             let dataMax = -Infinity;
@@ -295,6 +312,7 @@ export class Visual implements IVisual {
             const rowValues = rowCat.values;
             const colValues = colCat.values;
             const cellValues = values.values;
+            const sortValues = sortColumn ? sortColumn.values : null;
             const rowCount = rowValues.length;
 
             for (let i = 0; i < rowCount; i++) {
@@ -332,6 +350,16 @@ export class Visual implements IVisual {
 
                 if (!colSet.has(colKey)) { colSet.add(colKey); uniqueCols.push(colKey); }
 
+                // First FINITE rank wins for a row key. A BLANK rank is not
+                // recorded at all rather than coerced — Number(null) is 0,
+                // which would silently promote an unranked row to the front
+                // of the grid and assert an order the model never supplied.
+                if (sortValues && !rowRanks.has(rowKey)) {
+                    const rawRank = sortValues[i];
+                    const rank = rawRank === null || rawRank === undefined ? NaN : Number(rawRank);
+                    if (Number.isFinite(rank)) rowRanks.set(rowKey, rank);
+                }
+
                 if (isStringVal) {
                     let strCells = stringDataMap.get(rowKey);
                     if (strCells === undefined) {
@@ -358,6 +386,41 @@ export class Visual implements IVisual {
             if (!isFinite(dataMin)) dataMin = 0;
             if (!isFinite(dataMax)) dataMax = 0;
             if (dataMin === dataMax) { dataMin -= 1; dataMax += 1; }
+
+            // ─── Row ordering by the Sort Order role (NEXUS cycle-05 §3) ────
+            // capabilities.json has advertised Sort Order as an "Optional
+            // numeric value to control row sort order (ascending)" for as long
+            // as the role has existed, but the renderer only ever read the
+            // FIRST value column, so rows always came out in first-seen order
+            // — A/B/C stayed A/B/C whether the author ranked them 2/1/3 or
+            // 2/3/1. The only sorting that ran was the weekday COLUMN sort.
+            //
+            // Sorted here on the row KEY the rank was collected against, so
+            // every per-cell fill, fx override, selectionId, tooltip and peak
+            // outline below still resolves through the identity-keyed maps
+            // (dataMap / stringDataMap / cellIndexMap / rowCat.objects[cellIdx]).
+            // Nothing downstream keys off a row's position, so moving a row
+            // carries its colour and its conditional formatting with it.
+            //
+            // Stable, and gaps stay gaps: ranked rows lead in ascending rank,
+            // ties keep first-seen order (Array#sort is stable per ES2019), and
+            // rows the measure left blank keep first-seen order BEHIND the
+            // ranked rows instead of being coerced to rank 0. With the role
+            // unbound rowRanks is empty and the array is left untouched, so an
+            // existing saved report that never bound Sort Order is unchanged.
+            //
+            // Runs BEFORE the grid cap below so that when a huge grid is
+            // truncated the rows kept are the author's first N, not the
+            // model's first N.
+            if (rowRanks.size > 0) {
+                uniqueRows.sort((a, b) => {
+                    const rankA = rowRanks.get(a);
+                    const rankB = rowRanks.get(b);
+                    if (rankA === undefined) return rankB === undefined ? 0 : 1;
+                    if (rankB === undefined) return -1;
+                    return rankA - rankB;
+                });
+            }
 
             // 1180.2.4 Data Types (large data) — BOUND THE RENDERED GRID.
             //
