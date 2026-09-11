@@ -887,10 +887,18 @@ export class Visual implements IVisual {
                             td.style.border = (highlightPeak && val === dataMax)
                                 ? `${peakBorderWidth}px solid ${peakBorderColor}`
                                 : "none";
+                            // NEXUS cycle-05 §2: the automatic ink is the
+                            // fallback ONLY while the Cell Value Colour swatch
+                            // is untouched. An author who sets it card-level
+                            // was previously ignored on every nonzero cell —
+                            // the swatch reported its value to the formatting
+                            // model and painted nothing. Same sentinel as the
+                            // zero/blank/text branch, so both value branches
+                            // now answer the swatch identically.
                             const inkHelper = new ColorHelper(
                                 this.host.colorPalette,
                                 { objectName: "labelSettings", propertyName: "cellLabelColor" },
-                                inkFor(t)
+                                cellLabelColorIsAuto ? inkFor(t) : cellLabelColorDefault
                             );
                             td.style.color = inkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
                         }
