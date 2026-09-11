@@ -69,6 +69,18 @@ export class Visual implements IVisual {
     // indexed the same way as the row/col arrays built in update().
     private zeroColorHelper: ColorHelper | null = null;
 
+    // Disposal guard (NEXUS cycle-05 §9 correction, "guard disposed instances;
+    // remove registered root listeners as part of cleanup"). destroy() drops
+    // this visual's own nodes, but a host — or a test — that kept a reference
+    // to a detached cell could still dispatch into the listeners bound to it,
+    // and those closures called straight into the selection and tooltip
+    // services of a torn-down instance. The root handlers are held so they can
+    // be removed by name; every handler checks the flag so retained DETACHED
+    // nodes are inert too, which removeEventListener alone cannot achieve.
+    private disposed = false;
+    private backgroundContextHandler: ((event: MouseEvent) => void) | null = null;
+    private backgroundClickHandler: ((event: MouseEvent) => void) | null = null;
+
     // v3 corner-bracket card signature (LOOK-04) — created once since
     // update() rebuilds the container's table DOM from scratch every
     // render; its elements are re-appended (moved to the end) after each
@@ -107,12 +119,13 @@ export class Visual implements IVisual {
         this.target.appendChild(this.container);
 
         // Context menu on container (content area) AND target (any gap between target and container)
-        const ctxHandler = (event: MouseEvent) => {
+        this.backgroundContextHandler = (event: MouseEvent) => {
+            if (this.disposed) return;
             this.selectionManager.showContextMenu({} as ISelectionId, { x: event.clientX, y: event.clientY });
             event.preventDefault();
         };
-        this.target.addEventListener("contextmenu", ctxHandler);
-        this.container.addEventListener("contextmenu", ctxHandler);
+        this.target.addEventListener("contextmenu", this.backgroundContextHandler);
+        this.container.addEventListener("contextmenu", this.backgroundContextHandler);
 
         this.cornerSignature = makeCornerBrackets(this.container, "#8f8ab8", {
             variant: "cornerBracket",
@@ -1012,6 +1025,7 @@ export class Visual implements IVisual {
                     if (cellSelId) {
                         td.style.cursor = "pointer";
                         td.addEventListener("click", (ev: MouseEvent) => {
+                            if (this.disposed) return;
                             this.selectionManager.select(cellSelId, ev.ctrlKey || ev.metaKey);
                             ev.stopPropagation();
                         });
@@ -1024,6 +1038,7 @@ export class Visual implements IVisual {
                         { displayName: values.source.displayName || "Value", value: displayStr || "—" }
                     ];
                     td.addEventListener("mousemove", (ev: MouseEvent) => {
+                        if (this.disposed) return;
                         this.tooltipService.show({
                             coordinates: [ev.clientX, ev.clientY],
                             isTouchEvent: false,
@@ -1032,6 +1047,7 @@ export class Visual implements IVisual {
                         });
                     });
                     td.addEventListener("mouseleave", () => {
+                        if (this.disposed) return;
                         this.tooltipService.hide({ isTouchEvent: false, immediately: false });
                     });
 
@@ -1166,6 +1182,22 @@ export class Visual implements IVisual {
         // Drop the in-flight licence check FIRST: its redraw callback replays
         // update() against a torn-down target otherwise (NEXUS lifecycle finding).
         this.licenseGate.dispose();
+        // Then refuse every event path (§9's "guard disposed instances; remove
+        // registered root listeners as part of cleanup"). The flag goes up
+        // before the listeners come off so nothing can slip through in between,
+        // and it is what makes a DETACHED node that some caller still holds
+        // inert — removeEventListener only reaches the nodes we still own.
+        this.disposed = true;
+        if (this.backgroundContextHandler) {
+            this.target?.removeEventListener("contextmenu", this.backgroundContextHandler);
+            this.container?.removeEventListener("contextmenu", this.backgroundContextHandler);
+            this.backgroundContextHandler = null;
+        }
+        if (this.backgroundClickHandler) {
+            this.container?.removeEventListener("click", this.backgroundClickHandler);
+            this.backgroundClickHandler = null;
+        }
+        this.lastUpdateOptions = null;
         this.cornerSignature?.destroy();
         this.cornerSignature = null;
         while (this.container && this.container.firstChild) {
