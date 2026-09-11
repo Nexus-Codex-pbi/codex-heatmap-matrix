@@ -118,14 +118,35 @@ export class Visual implements IVisual {
         this.container.style.overflow = "auto";
         this.target.appendChild(this.container);
 
-        // Context menu on container (content area) AND target (any gap between target and container)
+        // ─── Background interactions (NEXUS cycle-05 §7) ──────────────────
+        // The same blank-space context handler used to be bound to BOTH the
+        // target and the container. Right-clicking a cell bubbled through both
+        // of them, so the host received the menu request TWICE, each time with
+        // an empty identity — there was no cell-level handler to supply one.
+        // And nothing ever cleared the selection: clicking blank space did
+        // exactly nothing, leaving the report cross-filtered with no way back
+        // from inside the visual.
+        //
+        // Correction line: "pass the cell identity for cell context menus,
+        // stop propagation, retain a single background handler, and provide a
+        // background selection-clear path."
+        //
+        // ONE background handler, on the container (the scroll root that
+        // actually covers the visual's area; the target is its parent, so a
+        // click anywhere still reaches it). Cell handlers stop propagation, so
+        // these two only ever see genuine background events.
         this.backgroundContextHandler = (event: MouseEvent) => {
             if (this.disposed) return;
             this.selectionManager.showContextMenu({} as ISelectionId, { x: event.clientX, y: event.clientY });
             event.preventDefault();
         };
-        this.target.addEventListener("contextmenu", this.backgroundContextHandler);
         this.container.addEventListener("contextmenu", this.backgroundContextHandler);
+
+        this.backgroundClickHandler = () => {
+            if (this.disposed) return;
+            this.selectionManager.clear();
+        };
+        this.container.addEventListener("click", this.backgroundClickHandler);
 
         this.cornerSignature = makeCornerBrackets(this.container, "#8f8ab8", {
             variant: "cornerBracket",
@@ -1027,6 +1048,16 @@ export class Visual implements IVisual {
                         td.addEventListener("click", (ev: MouseEvent) => {
                             if (this.disposed) return;
                             this.selectionManager.select(cellSelId, ev.ctrlKey || ev.metaKey);
+                            ev.stopPropagation();
+                        });
+                        // Cell context menu carries THIS cell's identity, and
+                        // stops here so the background handler cannot fire a
+                        // second, identity-less request for the same click
+                        // (NEXUS cycle-05 §7).
+                        td.addEventListener("contextmenu", (ev: MouseEvent) => {
+                            if (this.disposed) return;
+                            this.selectionManager.showContextMenu(cellSelId, { x: ev.clientX, y: ev.clientY });
+                            ev.preventDefault();
                             ev.stopPropagation();
                         });
                     }
