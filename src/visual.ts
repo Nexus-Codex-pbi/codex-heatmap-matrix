@@ -1147,6 +1147,18 @@ export class Visual implements IVisual {
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
+        // The host may ask for the format pane before it has ever called
+        // update() — opening the pane on a freshly dropped visual does exactly
+        // that. `formattingSettings` was only ever assigned inside update(), so
+        // the call threw "Cannot read properties of undefined (reading
+        // 'cards')" (NEXUS pass-two, lifecycle ordering boundary). The defaults
+        // do not depend on data, so build them on demand; the next update()
+        // replaces the model with the data-bound one as before.
+        if (!this.formattingSettings) {
+            this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(
+                VisualFormattingSettingsModel, undefined
+            );
+        }
         return this.formattingSettingsService.buildFormattingModel(this.formattingSettings);
     }
 
