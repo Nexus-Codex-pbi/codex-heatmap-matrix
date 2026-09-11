@@ -589,16 +589,10 @@ export class Visual implements IVisual {
             const cellWeight = weightFor(lbl?.bold?.value, "500");
             const cellFontStyle = lbl?.italic?.value ? "italic" : "normal";
             const cellTextDecoration = lbl?.underline?.value ? "underline" : "none";
-            // Cell Value Colour. CELL_LABEL_DEFAULT is the value settings.ts
-            // ships (settings.ts:231) and is the sentinel for "the author has
-            // never touched this swatch" — the same idiom HEADER_DEFAULT uses
-            // a few lines above for the header colour. An author who sets the
-            // swatch (to anything, black included) is honoured verbatim; only
-            // the untouched default is treated as "automatic" and resolved
-            // against the surface (NEXUS cycle-05 §1/§2).
+            // Only absent metadata means Auto; black is a valid explicit swatch.
             const CELL_LABEL_DEFAULT = "#000000";
             const cellLabelColorDefault = lbl?.cellLabelColor?.value?.value || CELL_LABEL_DEFAULT;
-            const cellLabelColorIsAuto = cellLabelColorDefault.toLowerCase() === CELL_LABEL_DEFAULT;
+            const cellLabelColorIsAuto = metadataObjects?.labelSettings?.cellLabelColor === undefined;
 
             const headerFontFamily = lbl?.headerFontFamily?.value || "Segoe UI, sans-serif";
             // Header Bold (NEXUS cycle-05 §5). The weightFor idiom's "bold off
