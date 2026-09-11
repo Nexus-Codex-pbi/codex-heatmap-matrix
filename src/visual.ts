@@ -413,7 +413,9 @@ export class Visual implements IVisual {
                 // of the grid and assert an order the model never supplied.
                 if (sortValues && !rowRanks.has(rowKey)) {
                     const rawRank = sortValues[i];
-                    const rank = rawRank === null || rawRank === undefined ? NaN : Number(rawRank);
+                    const blankRank = rawRank === null || rawRank === undefined
+                        || (typeof rawRank === "string" && rawRank.trim() === "");
+                    const rank = blankRank ? NaN : Number(rawRank);
                     if (Number.isFinite(rank)) rowRanks.set(rowKey, rank);
                 }
 
