@@ -155,6 +155,7 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        if (this.disposed) return;
         this.eventService.renderingStarted(options);
         this.lastUpdateOptions = options;
 
@@ -1252,6 +1253,7 @@ export class Visual implements IVisual {
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }
+        this.container?.remove();
         this.container = null;
         this.target = null;
     }
