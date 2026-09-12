@@ -21,7 +21,7 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba, compositeOver, contrastInk, contrastRatio } from "./shared/colorHelpers";
-import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor, forcedInk } from "./shared/codexThemeSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor, forcedInk, forcedChrome, isFxResolved } from "./shared/codexThemeSettings";
 import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, mix, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
@@ -246,14 +246,19 @@ export class Visual implements IVisual {
             // A forced mode owns the TEXT inks (title, headers, row labels, axis
             // titles) against ITS OWN composited surface — a font colour chosen
             // for a white report is not a choice about the Codex dark surface.
-            // The CELL ink is deliberately NOT in this set: it is already picked
-            // by measured contrast against each cell's own composited fill
-            // (inkFor/zeroInkFor below), and the fill is the author's data
-            // colour, which the Codex card never takes.
+            // The CELL ink joined this set in #819 pass 2, but only for the pane
+            // swatch (cellInk() below): an fx RULE is data and is painted
+            // verbatim, and an untouched swatch still takes the automatic ink
+            // measured against each cell's own composited fill (inkFor/
+            // zeroAutoInk below). KNOWN LIMIT, named in the pass-2 SUMMARY:
+            // forcedInk judges an explicit swatch against codex.surfaceHex, the
+            // CARD, while a cell label actually sits on the cell's own fill — so
+            // the guard can only replace an ink with the cell-measured automatic
+            // one, never keep an ink the cell itself cannot carry.
             const inkOverride = codex.mode !== "auto";
             // The surface a cell is painted on, and the surface every contrast
             // judgement below is made against. Under a forced mode that is the
-            // Codex surface, so surfaceInk/automaticInk/inkFor/zeroInkFor and
+            // Codex surface, so surfaceInk/automaticInk/inkFor/zeroAutoInk and
             // the truncation notice's opacity test all re-judge with no further
             // edit of their own.
             const cellBackdrop = inkOverride ? codex.surfaceHex : autoCellBackdrop;
@@ -735,16 +740,17 @@ export class Visual implements IVisual {
             // all-zero peak) share these two values. HC never reaches here: the
             // resolver collapses to Auto under HC, so codex.neon is false and
             // neonColorFor() returns the author's colour unchanged.
-            // #819 rules 2+3: the peak outline is the one CELL BORDER this grid
-            // draws, and a border is chrome, not data — its #FFFFFF default was
-            // authored for a dark tone and is invisible on the forced Light card.
-            // Under a forced mode an untouched swatch takes the mode's own text
-            // token; an explicitly set one is kept while it reads on the Codex
-            // surface. In Auto the mode default IS the author's value, so both
-            // forcedInk branches return it and the Auto render is untouched.
+            // #819 pass 2, rule 2 GUARDED: the peak outline is the one CELL
+            // BORDER this grid draws, and a border is chrome, not data — its
+            // #FFFFFF default was authored for a dark tone and is invisible on
+            // the forced Light card. It has a user picker (Peak Border Colour),
+            // so it takes forcedChrome, NOT pass 1's forcedInk: an outline only
+            // has to SEPARATE from the surface (1.3:1), never to be read at
+            // 4.5:1, and the stricter test made a deliberate mid-tone outline
+            // inert under a forced mode. Auto returns the author's colour
+            // untouched by construction, so the Auto render is unchanged.
             const autoPeakInk = metadataObjects?.heatmapSettings?.peakBorderColor === undefined;
-            const peakModeInk = inkOverride ? surfaceTokens(theme).text : peakBorderColor;
-            const peakInkHex = neonColorFor(forcedInk(peakBorderColor, peakModeInk, codex, autoPeakInk), codex);
+            const peakInkHex = neonColorFor(forcedChrome(peakBorderColor, surfaceTokens(theme).text, codex, autoPeakInk), codex);
             // neonFilter, NOT neonShadow, and deliberately: .heatmap-cell:hover
             // in visual.less paints the cyan selection ring with a box-shadow,
             // and an INLINE box-shadow outranks a stylesheet :hover rule — a
@@ -868,15 +874,15 @@ export class Visual implements IVisual {
             //
             // Scope is deliberately narrow, per §2's correction ("distinguish
             // an untouched automatic default from an explicit static swatch
-            // and honour the latter"): this applies ONLY while the swatch is
-            // absent from metadata. An author-set card-level colour is
-            // returned verbatim, a per-cell fx rule/instance object still wins
-            // over both (it is resolved by the ColorHelper, this is only its
-            // fallback), and high contrast never reaches here.
-            const zeroInkFor = (fillHex: string): string =>
-                cellLabelColorIsAuto
-                    ? automaticInk(compositeOver(fillHex, cellTransparencyPct, cellBackdrop))
-                    : cellLabelColorDefault;
+            // and honour the latter"): the automatic ink is the MODE DEFAULT,
+            // taken only while the swatch is absent from metadata. #819 pass 2
+            // moves that ternary into the shared forcedInk() at each call site
+            // (cellInk() below) — forcedInk's Auto branch IS this expression,
+            // so the render is unchanged — and this helper is left as the one
+            // thing only the cell knows: the automatic ink for a given fill.
+            // High contrast never reaches here.
+            const zeroAutoInk = (fillHex: string): string =>
+                automaticInk(compositeOver(fillHex, cellTransparencyPct, cellBackdrop));
 
             // Layout: optional yAxisTitle (left) + table; xAxisTitle below
             const showAxes = ax?.showAxisTitles?.value === true;
@@ -949,6 +955,26 @@ export class Visual implements IVisual {
                 zeroC
             );
 
+            // #819 pass 2 — rule 2 GUARDED + the one suite-wide fx test.
+            // Zero/Null Colour fills a cell that has NO value, so it carries no
+            // magnitude: it is neutral chrome, not data, and its #f0eee6 default
+            // is authored for a light tone (a bright slab on a forced-dark card).
+            // It has a picker, so a forced mode takes the mode token only while
+            // the swatch is untouched, and keeps an author's fill that still
+            // SEPARATES from the Codex surface. The mode token is
+            // surfaceTokens(theme).canvas — the same token the sequential ramp's
+            // t=0 stop already takes, so an empty cell and a zero-valued cell agree.
+            // isFxResolved is what makes the guard safe: this property IS
+            // ConstantOrRule and resolves per cell, and a rule that actually fires
+            // is DATA — painted verbatim under every mode, never forcedChrome'd.
+            const autoZeroFill = metadataObjects?.heatmapSettings?.zeroColor === undefined;
+            const zeroFillFor = (objects: powerbi.DataViewObjects | undefined): string => {
+                const resolved = this.zeroColorHelper?.getColorForMeasure(objects, "zeroColor") ?? zeroC;
+                return isFxResolved(resolved, zeroC)
+                    ? resolved
+                    : forcedChrome(resolved, surfaceTokens(theme).canvas, codex, autoZeroFill);
+            };
+
             // ─── fx wiring — Cell Value Colour (TEXT-02) ────────────────
             // Same per-cell resolution pattern as Zero/Null Colour above,
             // applied to the cell LABEL text colour (the numeric value
@@ -962,9 +988,34 @@ export class Visual implements IVisual {
             lbl.cellLabelColor.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             // No shared ColorHelper for this property any more: every branch
             // that resolves it now needs a per-cell fallback (inkFor(t) on the
-            // ramp, zeroInkFor(resolvedZeroColor) on the zero/blank/text fill),
-            // so the helper is constructed at the cell. The selector wiring
-            // above is what drives the fx button and stays exactly as it was.
+            // ramp, zeroAutoInk(zeroFill) on the zero/blank/text fill), so the
+            // helper is constructed at the cell. The selector wiring above is
+            // what drives the fx button and stays exactly as it was.
+            //
+            // #819 pass 2 — rule 3 + the one suite-wide fx test, in one place
+            // for all three value branches. The resolved colour is either a
+            // host-evaluated RULE (data: painted verbatim under every mode) or
+            // the pane swatch (an ink: guarded by forcedInk against the Codex
+            // surface, with this cell's own automatic ink as the mode default).
+            // Pass 1 exempted the whole PROPERTY because it *could* be fx;
+            // isFxResolved exempts only the values that actually ARE, so an
+            // explicit swatch that cannot be read under a forced mode now flips
+            // instead of being painted regardless. The helper's own default is
+            // the pane static, which is what makes that comparison meaningful —
+            // and forcedInk's Auto branch is the exact ternary this replaced
+            // (isDefault → the automatic ink, else the swatch), so Auto renders
+            // byte-identically.
+            const cellInk = (objects: powerbi.DataViewObjects | undefined, modeInk: string): string => {
+                const helper = new ColorHelper(
+                    this.host.colorPalette,
+                    { objectName: "labelSettings", propertyName: "cellLabelColor" },
+                    cellLabelColorDefault
+                );
+                const resolved = helper.getColorForMeasure(objects, "cellLabelColor");
+                return isFxResolved(resolved, cellLabelColorDefault)
+                    ? resolved
+                    : forcedInk(resolved, modeInk, codex, cellLabelColorIsAuto);
+            };
 
             const table = document.createElement("table");
             table.className = "heatmap-table";
@@ -1054,7 +1105,7 @@ export class Visual implements IVisual {
                         // on the colour ramp, so it takes the same fill as a
                         // zero/null cell (that fill already means "no numeric
                         // value"). Routed through zeroColorHelper /
-                        // zeroInkFor / toRgba rather than the hardcoded
+                        // zeroAutoInk / toRgba rather than the hardcoded
                         // #f5f4f0 the 2026-04 version used, so theming, cell
                         // transparency and the per-cell fx overrides all still apply.
                         if (hc.active) {
@@ -1063,19 +1114,11 @@ export class Visual implements IVisual {
                             td.style.border = `${hc.borderWidth}px solid ${hc.color}`;
                             td.style.color = hc.color;
                         } else {
-                            const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(cellInstanceObjects, "zeroColor") ?? zeroC;
+                            const resolvedZeroColor = zeroFillFor(cellInstanceObjects);
                             td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
                             td.style.backgroundImage = "none";
                             td.style.border = "none";
-                            // Same per-cell ColorHelper shape as the ramp branch
-                            // below/above: an explicit fx rule or per-instance
-                            // object wins, and zeroInkFor() is only the fallback.
-                            const zeroInkHelper = new ColorHelper(
-                                this.host.colorPalette,
-                                { objectName: "labelSettings", propertyName: "cellLabelColor" },
-                                zeroInkFor(resolvedZeroColor)
-                            );
-                            td.style.color = zeroInkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
+                            td.style.color = cellInk(cellInstanceObjects, zeroAutoInk(resolvedZeroColor));
                         }
                         displayStr = strVal;
                         if (showVals) td.textContent = displayStr;
@@ -1109,12 +1152,7 @@ export class Visual implements IVisual {
                             // model and painted nothing. Same sentinel as the
                             // zero/blank/text branch, so both value branches
                             // now answer the swatch identically.
-                            const inkHelper = new ColorHelper(
-                                this.host.colorPalette,
-                                { objectName: "labelSettings", propertyName: "cellLabelColor" },
-                                cellLabelColorIsAuto ? inkFor(t) : cellLabelColorDefault
-                            );
-                            td.style.color = inkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
+                            td.style.color = cellInk(cellInstanceObjects, inkFor(t));
                         }
                         displayStr = formatVal(val);
                         if (showVals) td.textContent = displayStr;
@@ -1125,18 +1163,10 @@ export class Visual implements IVisual {
                             td.style.border = `${hc.borderWidth}px solid ${hc.color}`;
                             td.style.color = hc.color;
                         } else {
-                            const resolvedZeroColor = this.zeroColorHelper?.getColorForMeasure(cellInstanceObjects, "zeroColor") ?? zeroC;
+                            const resolvedZeroColor = zeroFillFor(cellInstanceObjects);
                             td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
                             td.style.backgroundImage = "none";
                             td.style.border = "none";
-                            // Same per-cell ColorHelper shape as the ramp branch
-                            // below/above: an explicit fx rule or per-instance
-                            // object wins, and zeroInkFor() is only the fallback.
-                            const zeroInkHelper = new ColorHelper(
-                                this.host.colorPalette,
-                                { objectName: "labelSettings", propertyName: "cellLabelColor" },
-                                zeroInkFor(resolvedZeroColor)
-                            );
                             // Zero-only peak (NEXUS cycle-05 §6): when every
                             // numeric cell is zero, zero IS the maximum, so the
                             // zero cells are the peak. A zero in a grid with any
@@ -1147,7 +1177,7 @@ export class Visual implements IVisual {
                                 ? `${peakBorderWidth}px solid ${peakInkHex}`
                                 : "none";
                             td.style.filter = isZeroPeakCell ? peakGlow : "";
-                            td.style.color = zeroInkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
+                            td.style.color = cellInk(cellInstanceObjects, zeroAutoInk(resolvedZeroColor));
                         }
                         if (val === 0) displayStr = formatVal(0);
                         if (showVals && val === 0) td.textContent = displayStr;
