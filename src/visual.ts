@@ -21,6 +21,7 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba, compositeOver, contrastInk, contrastRatio } from "./shared/colorHelpers";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter } from "./shared/codexThemeSettings";
 import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, mix, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
@@ -211,7 +212,8 @@ export class Visual implements IVisual {
             // for resolving a translucent cell fill to the colour a viewer
             // really sees — NOT bgHex, which at Cell Transparency 100 is
             // painting nothing at all.
-            const cellBackdrop = compositeOver(bgHex, bgTransparencyPct, colorPalette?.background?.value ?? bgHex);
+            const behindHex = colorPalette?.background?.value ?? bgHex;
+            const autoCellBackdrop = compositeOver(bgHex, bgTransparencyPct, behindHex);
             // …and it is the SAME surface the theme must be picked from
             // (NEXUS cycle-05 §1, related limitation, this branch). The old
             // ladder took the RAW bgHex whenever the Background card was
@@ -226,14 +228,50 @@ export class Visual implements IVisual {
             // off an endpoint renders pixel-identically. Only a partially
             // transparent Background card can differ — and there the composite
             // is simply the truth.
-            const theme: Theme = themeFor(cellBackdrop);
-            const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(theme).text, fallbackBackground: bgHex });
+            const autoTheme: Theme = themeFor(autoCellBackdrop);
+            const hc = applyHighContrast(colorPalette, { fallbackColor: surfaceTokens(autoTheme).text, fallbackBackground: bgHex });
+
+            // ─── Nexus Codex Theme (#819) — ONE switch above the pick above ──
+            // Resolved exactly once and routed through every renderer below;
+            // Auto returns the values just derived, so a report that never
+            // touched the card is byte-identical to 1.x. Dark/Light/Neon paint
+            // the Codex card surface at the card's own Surface Transparency
+            // INSTEAD of the user's Background colour, and force the token set.
+            // High contrast never reaches a forced mode — the resolver collapses
+            // to Auto under HC, which is why no HC branch is added here.
+            const codex = resolveCodexTheme(this.formattingSettings.codexTheme, {
+                hcActive: hc.active, autoTheme, autoBgHex: bgHex, autoTransparencyPct: bgTransparencyPct, behindHex,
+            });
+            const theme: Theme = codex.theme;
+            // A forced mode owns the TEXT inks (title, headers, row labels, axis
+            // titles) against ITS OWN composited surface — a font colour chosen
+            // for a white report is not a choice about the Codex dark surface.
+            // The CELL ink is deliberately NOT in this set: it is already picked
+            // by measured contrast against each cell's own composited fill
+            // (inkFor/zeroInkFor below), and the fill is the author's data
+            // colour, which the Codex card never takes.
+            const inkOverride = codex.mode !== "auto";
+            // The surface a cell is painted on, and the surface every contrast
+            // judgement below is made against. Under a forced mode that is the
+            // Codex surface, so surfaceInk/automaticInk/inkFor/zeroInkFor and
+            // the truncation notice's opacity test all re-judge with no further
+            // edit of their own.
+            const cellBackdrop = inkOverride ? codex.surfaceHex : autoCellBackdrop;
+            if (inkOverride) this.container.style.backgroundColor = toRgba(codex.bgHex, codex.transparencyPct);
             if (hc.active) this.container.style.backgroundColor = hc.background;
             const surfaceInk = (preferred: string): string =>
                 contrastRatio(preferred, cellBackdrop) >= 4.5
                     ? preferred : contrastInk(cellBackdrop, "#000000", "#ffffff");
             const accentHex = accentToken(theme);
-            this.container.style.setProperty("--codex-accent", hc.active ? hc.color : accentHex);
+            // Neon flare on the CSS-only hover ring. accentHex itself is left
+            // alone: it is also the high stop of the sequential ramp, and the
+            // ramp is data colour.
+            this.container.style.setProperty("--codex-accent", hc.active ? hc.color : neonColorFor(accentHex, codex));
+            // Glow for the visual's header chrome (column headers, row labels,
+            // axis titles) and its title. Per the card's contract the 184 CELLS
+            // do not glow — only the peak-cell outline does (below).
+            const headerGlow = (ink: string): string =>
+                codex.neon && !hc.active ? neonShadow(neonColorFor(ink, codex), codex.glow) : "";
             this.container.classList.toggle("hc-mode", hc.active);
 
             // Visual's own Border card — CSS border on the scroll container so
@@ -287,12 +325,21 @@ export class Visual implements IVisual {
                 titleEl.style.textAlign = textAlignFor(titleSettings.titleAlign?.value as string);
                 if (titleSettings.titleColor?.value?.value) {
                     const setTitle = titleSettings.titleColor.value.value;
+                    // #819: adapt when the swatch was never touched OR when a
+                    // Codex mode is forced — the forced surface is ours, so the
+                    // title ink is ours. In Light the preferred ink becomes the
+                    // light token rather than the user's swatch (which may have
+                    // been picked for a dark report); surfaceInk() still guards
+                    // it against the surface actually composited.
                     const autoTitle = metadataObjects?.titleSettings?.titleColor === undefined;
+                    const preferredTitle = theme === "dark"
+                        ? surfaceTokens("dark").text
+                        : (inkOverride ? surfaceTokens("light").text : setTitle);
                     titleEl.style.color = hc.active
                         ? hc.color
-                        : (autoTitle
-                            ? surfaceInk(theme === "dark" ? surfaceTokens("dark").text : setTitle)
-                            : setTitle);
+                        : ((inkOverride || autoTitle) ? surfaceInk(preferredTitle) : setTitle);
+                    // Neon: the title is this visual's headline, so it flares.
+                    titleEl.style.textShadow = headerGlow(titleEl.style.color);
                 }
                 titleEl.style.padding = "8px 12px 4px";
                 this.container.appendChild(titleEl);
@@ -591,11 +638,17 @@ export class Visual implements IVisual {
             // HC system foreground wins; a user-set colour is honoured as-is.
             const HEADER_DEFAULT = "#333333";
             const rawHeaderColor = lbl?.fontColor?.value?.value || HEADER_DEFAULT;
+            // #819: "adapt only when untouched" becomes "adapt when a Codex
+            // mode is FORCED or untouched" — same clause as the title above.
             const autoHeader = metadataObjects?.labelSettings?.fontColor === undefined;
             const headerColor = hc.active ? hc.color
-                : (autoHeader
+                : ((inkOverride || autoHeader)
                     ? surfaceInk(theme === "dark" ? surfaceTokens("dark").muted : HEADER_DEFAULT)
                     : rawHeaderColor);
+            // Neon flare on the header chrome only (column headers, row labels,
+            // axis titles). Computed once; the truncation notice does NOT take
+            // it — it is body text smaller than the headline.
+            const headerTextShadow = headerGlow(headerColor);
 
             // Per-surface text treatment (TEXT-01) — cell value label font
             // + header font, siblings to the fontSize/headerFontSize reads
@@ -666,6 +719,21 @@ export class Visual implements IVisual {
             const highlightPeak = heat?.highlightPeak?.value === true;
             const peakBorderColor = heat?.peakBorderColor?.value?.value ?? "#FFFFFF";
             const peakBorderWidth = heat?.peakBorderWidth?.value ?? 2;
+            // #819 Neon: the peak outline is the one data mark this grid points
+            // AT, so it is the mark that flares — not all 184 cells, whose fills
+            // are the author's data colours and whose labels keep their
+            // measured-contrast ink. Both peak branches (numeric peak and the
+            // all-zero peak) share these two values. HC never reaches here: the
+            // resolver collapses to Auto under HC, so codex.neon is false and
+            // neonColorFor() returns the author's colour unchanged.
+            const peakInkHex = neonColorFor(peakBorderColor, codex);
+            // neonFilter, NOT neonShadow, and deliberately: .heatmap-cell:hover
+            // in visual.less paints the cyan selection ring with a box-shadow,
+            // and an INLINE box-shadow outranks a stylesheet :hover rule — a
+            // neonShadow() here would have silently killed the hover affordance
+            // on the one cell the author asked to highlight, in Neon only.
+            // drop-shadow lives in a different property, so both render.
+            const peakGlow = codex.neon ? neonFilter(peakInkHex, codex.glow) : "";
 
             // ─── v3 single-hue perceptual ramp (LOOK-04) ─────────────────
             // colorFor()/inkFor() now route through the frozen v3 engine's
@@ -819,6 +887,7 @@ export class Visual implements IVisual {
                 yAx.style.fontSize = `${headerFontSize}px`;
                 yAx.style.fontWeight = "600";
                 yAx.style.color = headerColor;
+                yAx.style.textShadow = headerTextShadow;
                 yAx.style.display = "flex";
                 yAx.style.alignItems = "center";
                 yAx.style.justifyContent = "center";
@@ -893,6 +962,7 @@ export class Visual implements IVisual {
                 th.textContent = col;
                 th.style.fontSize = `${headerFontSize}px`;
                 th.style.color = headerColor;
+                th.style.textShadow = headerTextShadow;
                 th.style.fontFamily = headerFontFamily;
                 th.style.fontWeight = colHeaderWeight;
                 th.style.fontStyle = headerFontStyle;
@@ -910,6 +980,7 @@ export class Visual implements IVisual {
                 rowLabel.textContent = row;
                 rowLabel.style.fontSize = `${headerFontSize}px`;
                 rowLabel.style.color = headerColor;
+                rowLabel.style.textShadow = headerTextShadow;
                 rowLabel.style.fontFamily = headerFontFamily;
                 rowLabel.style.fontWeight = rowLabelWeight;
                 rowLabel.style.fontStyle = headerFontStyle;
@@ -1007,9 +1078,11 @@ export class Visual implements IVisual {
                             td.style.backgroundImage = "none";
                             // Peak cell keeps its ramp fill and gains an outline;
                             // every other cell stays borderless as before.
-                            td.style.border = (highlightPeak && val === peakValue)
-                                ? `${peakBorderWidth}px solid ${peakBorderColor}`
+                            const isPeakCell = highlightPeak && val === peakValue;
+                            td.style.border = isPeakCell
+                                ? `${peakBorderWidth}px solid ${peakInkHex}`
                                 : "none";
+                            td.style.filter = isPeakCell ? peakGlow : "";
                             // NEXUS cycle-05 §2: the automatic ink is the
                             // fallback ONLY while the Cell Value Colour swatch
                             // is untouched. An author who sets it card-level
@@ -1051,9 +1124,11 @@ export class Visual implements IVisual {
                             // zero cells are the peak. A zero in a grid with any
                             // larger value is never the peak, and a blank/null
                             // cell never is — it has no value to be maximal.
-                            td.style.border = (highlightPeak && val === 0 && peakValue === 0)
-                                ? `${peakBorderWidth}px solid ${peakBorderColor}`
+                            const isZeroPeakCell = highlightPeak && val === 0 && peakValue === 0;
+                            td.style.border = isZeroPeakCell
+                                ? `${peakBorderWidth}px solid ${peakInkHex}`
                                 : "none";
+                            td.style.filter = isZeroPeakCell ? peakGlow : "";
                             td.style.color = zeroInkHelper.getColorForMeasure(cellInstanceObjects, "cellLabelColor");
                         }
                         if (val === 0) displayStr = formatVal(0);
@@ -1199,6 +1274,7 @@ export class Visual implements IVisual {
                 xAx.style.fontSize = `${headerFontSize}px`;
                 xAx.style.fontWeight = "600";
                 xAx.style.color = headerColor;
+                xAx.style.textShadow = headerTextShadow;
                 xAx.textContent = xAxisTitleText;
                 this.container.appendChild(xAx);
             }
@@ -1209,10 +1285,12 @@ export class Visual implements IVisual {
             // render) so they keep painting above the title/table.
             this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
             applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
-                autoHex: accentHex,
+                autoHex: neonColorFor(accentHex, codex),
                 hcActive: hc.active,
                 hcColor: hc.color,
-                glowMix: hc.active ? 0 : (theme === "dark" ? 55 : 0),
+                // #819: the card signature is this visual's EXISTING glow site,
+                // so under Neon its glow budget becomes the card's.
+                glowMix: hc.active ? 0 : (codex.neon ? codex.glow : (theme === "dark" ? 55 : 0)),
                 muted: false,
             });
 
@@ -1235,6 +1313,7 @@ export class Visual implements IVisual {
                 VisualFormattingSettingsModel, undefined
             );
         }
+        this.formattingSettings.codexTheme.reveal();
         return this.formattingSettingsService.buildFormattingModel(this.formattingSettings);
     }
 
