@@ -21,7 +21,7 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba, compositeOver, contrastInk, contrastRatio } from "./shared/colorHelpers";
-import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter } from "./shared/codexThemeSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor } from "./shared/codexThemeSettings";
 import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, mix, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
@@ -302,6 +302,7 @@ export class Visual implements IVisual {
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
                 applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, {
                     autoHex: "#8f8ab8", muted: true, hcActive: hc.active, hcColor: hc.color, glowMix: 0,
+                    flareHex: flareHexFor(codex),
                 });
                 this.eventService.renderingFinished(options);
                 return;
@@ -379,6 +380,7 @@ export class Visual implements IVisual {
                 this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
                 applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, {
                     autoHex: "#8f8ab8", muted: true, hcActive: hc.active, hcColor: hc.color, glowMix: 0,
+                    flareHex: flareHexFor(codex),
                 });
                 this.eventService.renderingFinished(options);
                 return;
@@ -1286,6 +1288,7 @@ export class Visual implements IVisual {
             this.cornerSignature?.elements.forEach((el) => this.container.appendChild(el));
             applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
                 autoHex: neonColorFor(accentHex, codex),
+                flareHex: flareHexFor(codex),
                 hcActive: hc.active,
                 hcColor: hc.color,
                 // #819: the card signature is this visual's EXISTING glow site,
