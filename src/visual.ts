@@ -16,7 +16,7 @@ import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 import ILocalizationManager = powerbi.extensibility.ILocalizationManager;
 import DataView = powerbi.DataView;
 
-import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
+import { dataViewWildcard, dataViewObjects } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
@@ -853,8 +853,9 @@ export class Visual implements IVisual {
             // the ColorHelper below with this only as its fallback, and high
             // contrast never reaches here at all (it owns its own branch, and
             // the zero/blank/text branch keeps its own Cell Value Colour).
-            const inkFor = (t: number): string =>
-                automaticInk(compositeOver(colorFor(t), cellTransparencyPct, cellBackdrop));
+            // (2026-09-13: the per-fill wrapper folded into cellInk() below,
+            // which composites the fill itself so the same surface feeds both
+            // the automatic ink and the forced-mode guard.)
 
             // ─── …and the same rule for the OTHER fill (NEXUS cycle-05 §1) ───
             // A zero, blank or text cell is not on the ramp — it is painted
@@ -881,8 +882,7 @@ export class Visual implements IVisual {
             // so the render is unchanged — and this helper is left as the one
             // thing only the cell knows: the automatic ink for a given fill.
             // High contrast never reaches here.
-            const zeroAutoInk = (fillHex: string): string =>
-                automaticInk(compositeOver(fillHex, cellTransparencyPct, cellBackdrop));
+            // (2026-09-13: likewise folded into cellInk() below.)
 
             // Layout: optional yAxisTitle (left) + table; xAxisTitle below
             const showAxes = ax?.showAxisTitles?.value === true;
@@ -1005,16 +1005,23 @@ export class Visual implements IVisual {
             // and forcedInk's Auto branch is the exact ternary this replaced
             // (isDefault → the automatic ink, else the swatch), so Auto renders
             // byte-identically.
-            const cellInk = (objects: powerbi.DataViewObjects | undefined, modeInk: string): string => {
-                const helper = new ColorHelper(
-                    this.host.colorPalette,
-                    { objectName: "labelSettings", propertyName: "cellLabelColor" },
-                    cellLabelColorDefault
-                );
-                const resolved = helper.getColorForMeasure(objects, "cellLabelColor");
-                return isFxResolved(resolved, cellLabelColorDefault)
-                    ? resolved
-                    : forcedInk(resolved, modeInk, codex, cellLabelColorIsAuto);
+            //
+            // NEXUS re-review 2026-09-13 (H1, H2): two corrections to the above.
+            // H2 — a rule is recognised by PRESENCE in this cell's instance
+            // objects, not by comparing the resolved colour with the pane
+            // swatch: a rule that evaluates to exactly the pane's #000000 was
+            // read as "no rule" and replaced by the automatic ink, in Auto too
+            // (the 4ed9c03 bundle painted it black). H1 — the forced-mode guard
+            // judges the swatch against the CELL's composited fill, not the
+            // card surface: explicit white on a white maximum cell passed the
+            // card test at 1.00:1 on the cell. So the helper takes the cell's
+            // fill and derives both the surface and the automatic ink itself.
+            const cellLabelProp = { objectName: "labelSettings", propertyName: "cellLabelColor" };
+            const cellInk = (objects: powerbi.DataViewObjects | undefined, fillHex: string): string => {
+                const rule = dataViewObjects.getFillColor(objects, cellLabelProp);
+                if (rule) return rule;
+                const surface = compositeOver(fillHex, cellTransparencyPct, cellBackdrop);
+                return forcedInk(cellLabelColorDefault, automaticInk(surface), codex, cellLabelColorIsAuto, surface);
             };
 
             const table = document.createElement("table");
@@ -1118,7 +1125,7 @@ export class Visual implements IVisual {
                             td.style.backgroundColor = toRgba(resolvedZeroColor, cellTransparencyPct);
                             td.style.backgroundImage = "none";
                             td.style.border = "none";
-                            td.style.color = cellInk(cellInstanceObjects, zeroAutoInk(resolvedZeroColor));
+                            td.style.color = cellInk(cellInstanceObjects, resolvedZeroColor);
                         }
                         displayStr = strVal;
                         if (showVals) td.textContent = displayStr;
@@ -1152,7 +1159,7 @@ export class Visual implements IVisual {
                             // model and painted nothing. Same sentinel as the
                             // zero/blank/text branch, so both value branches
                             // now answer the swatch identically.
-                            td.style.color = cellInk(cellInstanceObjects, inkFor(t));
+                            td.style.color = cellInk(cellInstanceObjects, colorFor(t));
                         }
                         displayStr = formatVal(val);
                         if (showVals) td.textContent = displayStr;
@@ -1177,7 +1184,7 @@ export class Visual implements IVisual {
                                 ? `${peakBorderWidth}px solid ${peakInkHex}`
                                 : "none";
                             td.style.filter = isZeroPeakCell ? peakGlow : "";
-                            td.style.color = cellInk(cellInstanceObjects, zeroAutoInk(resolvedZeroColor));
+                            td.style.color = cellInk(cellInstanceObjects, resolvedZeroColor);
                         }
                         if (val === 0) displayStr = formatVal(0);
                         if (showVals && val === 0) td.textContent = displayStr;
