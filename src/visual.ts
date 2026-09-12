@@ -21,7 +21,7 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba, compositeOver, contrastInk, contrastRatio } from "./shared/colorHelpers";
-import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor } from "./shared/codexThemeSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor, forcedInk } from "./shared/codexThemeSettings";
 import { Theme, accentToken } from "./shared/bandEngine";
 import { heatmapRamp, ragScale, surfaceTokens, mix, TABULAR_NUMS } from "./shared/designTokens";
 import { applyHighContrast, densityHatching } from "./shared/highContrast";
@@ -332,13 +332,20 @@ export class Visual implements IVisual {
                     // light token rather than the user's swatch (which may have
                     // been picked for a dark report); surfaceInk() still guards
                     // it against the surface actually composited.
+                    // #819 rule 3: the forced mode no longer REPLACES an ink the
+                    // author set explicitly — forcedInk keeps it while it reads
+                    // >= 4.5:1 on the Codex surface and flips it to the mode's
+                    // own default only when it does not. Auto is untouched:
+                    // forcedInk returns modeDefault when the swatch is untouched
+                    // and the author's value otherwise, which is exactly the two
+                    // branches this expression had.
                     const autoTitle = metadataObjects?.titleSettings?.titleColor === undefined;
                     const preferredTitle = theme === "dark"
                         ? surfaceTokens("dark").text
                         : (inkOverride ? surfaceTokens("light").text : setTitle);
                     titleEl.style.color = hc.active
                         ? hc.color
-                        : ((inkOverride || autoTitle) ? surfaceInk(preferredTitle) : setTitle);
+                        : forcedInk(setTitle, surfaceInk(preferredTitle), codex, autoTitle);
                     // Neon: the title is this visual's headline, so it flares.
                     titleEl.style.textShadow = headerGlow(titleEl.style.color);
                 }
@@ -640,13 +647,13 @@ export class Visual implements IVisual {
             // HC system foreground wins; a user-set colour is honoured as-is.
             const HEADER_DEFAULT = "#333333";
             const rawHeaderColor = lbl?.fontColor?.value?.value || HEADER_DEFAULT;
-            // #819: "adapt only when untouched" becomes "adapt when a Codex
-            // mode is FORCED or untouched" — same clause as the title above.
+            // #819 rule 3: same guard as the title — a forced mode takes the
+            // header ink only when the swatch is untouched or the author's own
+            // colour cannot be read on the Codex surface.
             const autoHeader = metadataObjects?.labelSettings?.fontColor === undefined;
+            const headerModeInk = surfaceInk(theme === "dark" ? surfaceTokens("dark").muted : HEADER_DEFAULT);
             const headerColor = hc.active ? hc.color
-                : ((inkOverride || autoHeader)
-                    ? surfaceInk(theme === "dark" ? surfaceTokens("dark").muted : HEADER_DEFAULT)
-                    : rawHeaderColor);
+                : forcedInk(rawHeaderColor, headerModeInk, codex, autoHeader);
             // Neon flare on the header chrome only (column headers, row labels,
             // axis titles). Computed once; the truncation notice does NOT take
             // it — it is body text smaller than the headline.
@@ -728,7 +735,16 @@ export class Visual implements IVisual {
             // all-zero peak) share these two values. HC never reaches here: the
             // resolver collapses to Auto under HC, so codex.neon is false and
             // neonColorFor() returns the author's colour unchanged.
-            const peakInkHex = neonColorFor(peakBorderColor, codex);
+            // #819 rules 2+3: the peak outline is the one CELL BORDER this grid
+            // draws, and a border is chrome, not data — its #FFFFFF default was
+            // authored for a dark tone and is invisible on the forced Light card.
+            // Under a forced mode an untouched swatch takes the mode's own text
+            // token; an explicitly set one is kept while it reads on the Codex
+            // surface. In Auto the mode default IS the author's value, so both
+            // forcedInk branches return it and the Auto render is untouched.
+            const autoPeakInk = metadataObjects?.heatmapSettings?.peakBorderColor === undefined;
+            const peakModeInk = inkOverride ? surfaceTokens(theme).text : peakBorderColor;
+            const peakInkHex = neonColorFor(forcedInk(peakBorderColor, peakModeInk, codex, autoPeakInk), codex);
             // neonFilter, NOT neonShadow, and deliberately: .heatmap-cell:hover
             // in visual.less paints the cyan selection ring with a box-shadow,
             // and an INLINE box-shadow outranks a stylesheet :hover rule — a
