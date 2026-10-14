@@ -11,6 +11,7 @@ import FormattingSettingsModel = formattingSettings.Model;
 import { BackgroundSettings } from "./shared/backgroundSettings";
 import { CodexThemeSettings } from "./shared/codexThemeSettings";
 import { TitleSettings } from "./shared/titleSettings";
+import { LicenceSettings } from "./shared/licenceSettings";
 import { textAlignFor } from "./shared/textFormatting";
 import { CardSignatureSettings } from "./shared/cardSignatureSettings";
 import { BorderSettings } from "./shared/borderSettings";
@@ -349,7 +350,11 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
+    licence = new LicenceSettings();
+
     cards = [this.titleSettings, this.heatmapSettings, this.columnSettings, this.labelSettings, this.axisSettings, this.background,
-        this.codexTheme, this.cardSignature, this.visualBorder
+        this.codexTheme, this.cardSignature, this.visualBorder,
+
+        this.licence
     ];
 }
